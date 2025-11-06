@@ -60,13 +60,15 @@ def main():
 	textures = []
 	tex_dir = os.path.join(os.path.dirname(__file__), 'textures')
 	if os.path.isdir(tex_dir):
-		for fn in os.listdir(tex_dir):
-			if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-				try:
-					surf = pygame.image.load(os.path.join(tex_dir, fn)).convert()
-					textures.append(surf)
-				except Exception as e:
-					print(f"Warning: failed loading texture {fn}: {e}")
+		# prefer files that contain 'eye' in the name so your provided eye image is used first
+		files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+		files.sort(key=lambda n: (0 if 'eye' in n.lower() else 1, n.lower()))
+		for fn in files:
+			try:
+				surf = pygame.image.load(os.path.join(tex_dir, fn)).convert()
+				textures.append(surf)
+			except Exception as e:
+				print(f"Warning: failed loading texture {fn}: {e}")
 	if textures:
 		print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
 
@@ -168,11 +170,21 @@ def main():
 				u = int(abs(frac) * (tw - 1))
 				try:
 					col_surf = tex.subsurface((u, 0, 1, th)).copy()
-					col_surf = pygame.transform.scale(col_surf, (slice_w, proj_height))
+					col_surf = pygame.transform.scale(col_surf, (slice_w, proj_height)).convert()
+					# apply distance-based shading: nearer slices are brighter, far ones darker
+					color_val = max(30, 255 - int(depth * 12))
+					# create a shading surface and multiply
+					shade = pygame.Surface(col_surf.get_size()).convert()
+					shade.fill((color_val, color_val, color_val))
+					try:
+						col_surf.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
+					except Exception:
+						# fallback: if BLEND_MULT not supported for some reason, skip shading
+						pass
 					screen.blit(col_surf, (x, screen_h // 2 - proj_height // 2))
 				except Exception:
-					# if subsurface failed, fallback to flat shading
-					color_val = max(0, 255 - int(depth * 12))
+					# if subsurface failed, fallback to flat shading (with same distance shading)
+					color_val = max(30, 255 - int(depth * 12))
 					col = (color_val, color_val, color_val)
 					pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 			else:
