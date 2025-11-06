@@ -28,26 +28,76 @@ def generate_maze(w, h):
 	return maze
 
 
-def cast_ray(px, py, angle, maze, max_depth=20, step=0.01):
+def cast_ray(px, py, angle, maze, max_depth=100):
 	"""
-	Ray-march until hit. Returns (depth, hit_bool, hit_x, hit_y).
-	hit_x/hit_y are the precise world coordinates of the collision.
+	DDA-based raycast. Returns:
+	  depth, hit_bool, hit_x, hit_y, map_x, map_y, side
+	where side==0 indicates a vertical wall hit (x-side), side==1 horizontal (y-side).
 	"""
-	sin_a = math.sin(angle)
-	cos_a = math.cos(angle)
-	depth = 0.0
-	x = px
-	y = py
-	while depth < max_depth:
-		depth += step
-		x = px + cos_a * depth
-		y = py + sin_a * depth
-		ix, iy = int(x), int(y)
-		if iy < 0 or iy >= len(maze) or ix < 0 or ix >= len(maze[0]):
-			return depth, True, x, y
-		if maze[iy][ix] == 1:
-			return depth, True, x, y
-	return max_depth, False, x, y
+	rayDirX = math.cos(angle)
+	rayDirY = math.sin(angle)
+
+	mapX = int(px)
+	mapY = int(py)
+
+	# length of ray from one x or y side to next x or y side
+	deltaDistX = abs(1.0 / rayDirX) if rayDirX != 0 else 1e30
+	deltaDistY = abs(1.0 / rayDirY) if rayDirY != 0 else 1e30
+
+	# step and initial sideDist
+	if rayDirX < 0:
+		stepX = -1
+		sideDistX = (px - mapX) * deltaDistX
+	else:
+		stepX = 1
+		sideDistX = (mapX + 1.0 - px) * deltaDistX
+	if rayDirY < 0:
+		stepY = -1
+		sideDistY = (py - mapY) * deltaDistY
+	else:
+		stepY = 1
+		sideDistY = (mapY + 1.0 - py) * deltaDistY
+
+	hit = False
+	side = 0
+	max_iter = int(max_depth * max(deltaDistX, deltaDistY)) + 5
+	iter_count = 0
+	while not hit and iter_count < max_iter:
+		# jump to next map square, OR in x-direction, OR in y-direction
+		if sideDistX < sideDistY:
+			sideDistX += deltaDistX
+			mapX += stepX
+			side = 0
+		else:
+			sideDistY += deltaDistY
+			mapY += stepY
+			side = 1
+		# bounds check
+		if mapY < 0 or mapY >= len(maze) or mapX < 0 or mapX >= len(maze[0]):
+			# went out of map
+			break
+		if maze[mapY][mapX] == 1:
+			hit = True
+			break
+		iter_count += 1
+
+	if not hit:
+		# no wall hit within range
+		# approximate hit at max depth
+		hit_x = px + rayDirX * max_depth
+		hit_y = py + rayDirY * max_depth
+		return max_depth, False, hit_x, hit_y, mapX, mapY, side
+
+	# calculate distance to the point of impact (perpendicular distance to avoid fish-eye)
+	if side == 0:
+		perpWallDist = (mapX - px + (1 - stepX) / 2) / (rayDirX if rayDirX != 0 else 1e-6)
+	else:
+		perpWallDist = (mapY - py + (1 - stepY) / 2) / (rayDirY if rayDirY != 0 else 1e-6)
+
+	hit_x = px + rayDirX * perpWallDist
+	hit_y = py + rayDirY * perpWallDist
+
+	return perpWallDist, True, hit_x, hit_y, mapX, mapY, side
 
 
 def main():
@@ -152,38 +202,40 @@ def main():
 		slice_w = int(screen_w / num_rays) + 1
 		for r in range(num_rays):
 			angle = ray_angle + (r / num_rays) * fov
-			depth, hit, hx, hy = cast_ray(px, py, angle, maze, max_depth=max_depth)
-			# simple fish-eye correction
+			depth, hit, hx, hy, mpx, mpy, side = cast_ray(px, py, angle, maze, max_depth=max_depth)
+			# simple fish-eye correction already handled by perp dist in DDA; still apply cosine to be safe
 			depth *= math.cos(angle - pa)
 			if depth <= 0: depth = 0.0001
 			proj_height = min(int(wall_height / (depth + 0.0001) * 2), screen_h)
 			x = int(r * (screen_w / num_rays))
 
 			if hit and textures:
-				# sample texture column based on fractional hit coordinate
-				tex = textures[r % len(textures)]
+				# choose texture (use first texture so all walls show the eye image)
+				tex = textures[0]
 				tw, th = tex.get_size()
-				# use fractional part of hit x coordinate as u; fallback to hit y
-				frac = hx - math.floor(hx)
-				if frac == 0:
-					frac = hy - math.floor(hy)
-				u = int(abs(frac) * (tw - 1))
+				# compute wall_x: where exactly wall was hit (fractional part within the tile)
+				if side == 0:
+					# vertical wall, use y coordinate
+					wall_x = hy - math.floor(hy)
+				else:
+					# horizontal wall, use x coordinate
+					wall_x = hx - math.floor(hx)
+				# ensure 0..1
+				wall_x = wall_x - math.floor(wall_x)
+				u = int(wall_x * (tw - 1))
 				try:
 					col_surf = tex.subsurface((u, 0, 1, th)).copy()
 					col_surf = pygame.transform.scale(col_surf, (slice_w, proj_height)).convert()
 					# apply distance-based shading: nearer slices are brighter, far ones darker
 					color_val = max(30, 255 - int(depth * 12))
-					# create a shading surface and multiply
 					shade = pygame.Surface(col_surf.get_size()).convert()
 					shade.fill((color_val, color_val, color_val))
 					try:
 						col_surf.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
 					except Exception:
-						# fallback: if BLEND_MULT not supported for some reason, skip shading
 						pass
 					screen.blit(col_surf, (x, screen_h // 2 - proj_height // 2))
 				except Exception:
-					# if subsurface failed, fallback to flat shading (with same distance shading)
 					color_val = max(30, 255 - int(depth * 12))
 					col = (color_val, color_val, color_val)
 					pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
