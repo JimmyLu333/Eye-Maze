@@ -111,6 +111,14 @@ def main():
 	# vertical resolution and scale up for speed. REDUCE_FACTOR=2 renders at half height.
 	USE_PERSPECTIVE_FLOOR = True
 	REDUCE_FACTOR = 2
+	# Visual tone adjustments to make floor/ceiling darker/more gloomy
+	# 0.0..1.0 scale where 1.0 = original brightness
+	FLOOR_BRIGHTNESS = 0.45
+	CEIL_BRIGHTNESS = 0.15
+	# DESATURATE: 0.0 = keep colors, 1.0 = fully grayscale
+	DESATURATE = 0.35
+	# Ceiling can have its own stronger desaturation factor
+	CEIL_DESATURATE = 0.8
 	screen_w, screen_h = 800 * SCALE, 480 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
@@ -271,13 +279,28 @@ def main():
 					floorY = py + rowDistance * leftY
 					tx = ((floorX - np.floor(floorX)) * ftw).astype(np.int64) % ftw
 					ty = ((floorY - np.floor(floorY)) * fth).astype(np.int64) % fth
-					colors = floor_tex_arr[tx, ty]
+					colors = floor_tex_arr[tx, ty].astype(np.float32)
 					shade = max(30, 255 - int(rowDistance * 8))
-					colors = (colors * (shade / 255.0)).astype(np.uint8)
+					mul = (shade / 255.0) * FLOOR_BRIGHTNESS
+					# optional desaturation
+					if DESATURATE > 0.0:
+						# colors is (screen_w,3) so average over channel axis=1
+						gray = colors.mean(axis=1, keepdims=True)
+						colors = colors * (1.0 - DESATURATE) + gray * DESATURATE
+					colors = (colors * mul).clip(0, 255).astype(np.uint8)
 					floor_small[:, sy, :] = colors
 				# create surface and scale up
 				floor_surf = pygame.surfarray.make_surface(floor_small)
 				floor_surf = pygame.transform.scale(floor_surf, (screen_w, half_h))
+				# apply brightness tint via BLEND_MULT
+				if FLOOR_BRIGHTNESS < 1.0:
+					shade = pygame.Surface(floor_surf.get_size()).convert()
+					v = int(255 * FLOOR_BRIGHTNESS)
+					shade.fill((v, v, v))
+					try:
+						floor_surf.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
+					except Exception:
+						pass
 				screen.blit(floor_surf, (0, half_h))
 			else:
 				# solid color fallback
@@ -298,12 +321,25 @@ def main():
 					ceilingY = py + rowDistance * leftY
 					tx = ((ceilingX - np.floor(ceilingX)) * ctw).astype(np.int64) % ctw
 					ty = ((ceilingY - np.floor(ceilingY)) * cth).astype(np.int64) % cth
-					colors = ceil_tex_arr[tx, ty]
+					colors = ceil_tex_arr[tx, ty].astype(np.float32)
 					shade = max(30, 255 - int(rowDistance * 8))
-					colors = (colors * (shade / 255.0)).astype(np.uint8)
+					mul = (shade / 255.0) * CEIL_BRIGHTNESS
+					if CEIL_DESATURATE > 0.0:
+						# colors is (screen_w,3) so average over channel axis=1
+						gray = colors.mean(axis=1, keepdims=True)
+						colors = colors * (1.0 - CEIL_DESATURATE) + gray * CEIL_DESATURATE
+					colors = (colors * mul).clip(0, 255).astype(np.uint8)
 					ceil_small[:, sy, :] = colors
 				ceil_surf = pygame.surfarray.make_surface(ceil_small)
 				ceil_surf = pygame.transform.scale(ceil_surf, (screen_w, half_h))
+				if CEIL_BRIGHTNESS < 1.0:
+					shade = pygame.Surface(ceil_surf.get_size()).convert()
+					v = int(255 * CEIL_BRIGHTNESS)
+					shade.fill((v, v, v))
+					try:
+						ceil_surf.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
+					except Exception:
+						pass
 				screen.blit(ceil_surf, (0, 0))
 			else:
 				pygame.draw.rect(screen, (100, 150, 200), (0, 0, screen_w, half_h))
@@ -318,7 +354,19 @@ def main():
 				scaled = pygame.transform.scale(ceil_tex, (tile_w, tile_h))
 				for yy in range(0, screen_h // 2, tile_h):
 					for xx in range(0, screen_w, tile_w):
-						screen.blit(scaled, (xx, yy))
+						# apply darkness tint for atmosphere
+						if CEIL_BRIGHTNESS < 1.0:
+							sh = scaled.copy()
+							shade = pygame.Surface(sh.get_size()).convert()
+							v = int(255 * CEIL_BRIGHTNESS)
+							shade.fill((v, v, v))
+							try:
+								sh.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
+							except Exception:
+								pass
+							screen.blit(sh, (xx, yy))
+						else:
+							screen.blit(scaled, (xx, yy))
 			else:
 				screen.fill((100, 150, 200))  # sky
 
@@ -331,7 +379,19 @@ def main():
 				scaled = pygame.transform.scale(floor_tex, (tile_w, tile_h))
 				for yy in range(screen_h // 2, screen_h, tile_h):
 					for xx in range(0, screen_w, tile_w):
-						screen.blit(scaled, (xx, yy))
+						# apply darkness tint for atmosphere
+						if FLOOR_BRIGHTNESS < 1.0:
+							sh = scaled.copy()
+							shade = pygame.Surface(sh.get_size()).convert()
+							v = int(255 * FLOOR_BRIGHTNESS)
+							shade.fill((v, v, v))
+							try:
+								sh.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
+							except Exception:
+								pass
+							screen.blit(sh, (xx, yy))
+						else:
+							screen.blit(scaled, (xx, yy))
 			else:
 				pygame.draw.rect(screen, (50, 50, 50), (0, screen_h // 2, screen_w, screen_h // 2))
 
