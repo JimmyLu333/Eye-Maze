@@ -102,7 +102,9 @@ def cast_ray(px, py, angle, maze, max_depth=100):
 
 def main():
 	pygame.init()
-	screen_w, screen_h = 800, 480
+	# SCALE increases internal pixel density; set to 1 (original), 2 (double), or 3 (triple)
+	SCALE = 2
+	screen_w, screen_h = 800 * SCALE, 480 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
 
@@ -159,14 +161,14 @@ def main():
 				break
 	print(f"Exit set at: ({exit_x}, {exit_y}), start at: ({start_ix}, {start_iy})")
 
-	move_speed = 3.0
+	move_speed = 3.0 * SCALE
 	rot_speed = 2.0
 
 	fov = math.pi / 3
 	half_fov = fov / 2
-	num_rays = 200
+	num_rays = 200 * SCALE
 	max_depth = 20
-	wall_height = 120
+	wall_height = 120 * SCALE
 
 	running = True
 	frame_count = 0
@@ -245,7 +247,7 @@ def main():
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
 		# mini-map
-		mm_scale = 8
+		mm_scale = 8 * SCALE
 		for y in range(map_h):
 			for x in range(map_w):
 				rect = pygame.Rect(x * mm_scale, y * mm_scale, mm_scale - 1, mm_scale - 1)
@@ -255,7 +257,7 @@ def main():
 		ex_rect = pygame.Rect(exit_x * mm_scale, exit_y * mm_scale, mm_scale - 1, mm_scale - 1)
 		pygame.draw.rect(screen, (0, 200, 0), ex_rect)
 		# player on mini-map
-		pygame.draw.circle(screen, (255, 0, 0), (int(px * mm_scale), int(py * mm_scale)), 3)
+		pygame.draw.circle(screen, (255, 0, 0), (int(px * mm_scale), int(py * mm_scale)), max(2, 3 * SCALE))
 
 		# debug: print integer player cell and exit cell on first frame
 		if frame_count == 0:
@@ -264,7 +266,7 @@ def main():
 		# check win condition: player reached exit cell
 		if int(px) == exit_x and int(py) == exit_y:
 			# draw a simple win overlay and wait for user to press a key or close the window
-			font = pygame.font.SysFont(None, 64)
+			font = pygame.font.SysFont(None, 64 * SCALE)
 			text = font.render('You escaped!', True, (255, 255, 255))
 			tw, th = text.get_size()
 			screen.blit(text, (screen_w // 2 - tw // 2, screen_h // 2 - th // 2))
