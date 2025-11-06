@@ -104,6 +104,12 @@ def main():
 	pygame.init()
 	# SCALE increases internal pixel density; set to 1 (original), 2 (double), or 3 (triple)
 	SCALE = 2
+	# FLOOR_STEP controls floor/ceiling sampling horizontal resolution.
+	# Increase to 2-6 to reduce cost (bigger means faster but blockier).
+	FLOOR_STEP = 4
+	# By default we keep the fast tiled floor/ceiling to preserve responsiveness.
+	# Press 'f' in-game to toggle perspective (world-anchored) floor/ceiling rendering.
+	USE_PERSPECTIVE_FLOOR = False
 	screen_w, screen_h = 800 * SCALE, 480 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
@@ -192,6 +198,9 @@ def main():
 				running = False
 			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 				running = False
+			elif event.type == pygame.KEYDOWN and event.key == pygame.K_f:
+				USE_PERSPECTIVE_FLOOR = not USE_PERSPECTIVE_FLOOR
+				print('Perspective floor:', USE_PERSPECTIVE_FLOOR)
 
 		keys = pygame.key.get_pressed()
 		if keys[pygame.K_a]:
@@ -209,14 +218,28 @@ def main():
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
 
-		# render: perspective-correct floor & ceiling (floor casting) so textures are fixed to world
-		# based on Lode's raycasting floorcasting approach. Falls back to simple tiling/colors
-		if floor_tex or ceil_tex:
-			# prefetch texture sizes
+		# render: floor & ceiling selection
+		# If perspective floor is disabled (default), use fast tiling which is responsive.
+		if USE_PERSPECTIVE_FLOOR and (floor_tex or ceil_tex):
+			# Try to use numpy + surfarray for vectorized sampling (much faster than per-pixel Python loops)
+			try:
+				import numpy as np
+			except Exception:
+				print('numpy not available; disabling perspective floor')
+				USE_PERSPECTIVE_FLOOR = False
+
+		if USE_PERSPECTIVE_FLOOR and (floor_tex or ceil_tex):
+			# prepare numpy-backed arrays for textures
 			if floor_tex:
 				ftw, fth = floor_tex.get_size()
+				floor_tex_arr = pygame.surfarray.array3d(floor_tex)  # shape (w,h,3)
+			else:
+				floor_tex_arr = None
 			if ceil_tex:
 				ctw, cth = ceil_tex.get_size()
+				ceil_tex_arr = pygame.surfarray.array3d(ceil_tex)
+			else:
+				ceil_tex_arr = None
 
 			# direction vectors for left and right edge of the screen
 			rayDirLeftX = math.cos(pa - half_fov)
@@ -226,66 +249,59 @@ def main():
 
 			posZ = 0.5 * screen_h  # distance from camera to the projection plane
 
-			# draw floor (bottom half)
+			# get a writable view of the screen pixel buffer (width, height, 3)
+			screen_arr = pygame.surfarray.pixels3d(screen)
+			cols = np.arange(screen_w)
+			hor = cols / float(screen_w)
+			dirX = rayDirRightX - rayDirLeftX
+			dirY = rayDirRightY - rayDirLeftY
+
+			# draw floor rows quickly using numpy indexing
 			for y in range(screen_h // 2, screen_h):
 				p = y - screen_h / 2
 				if p == 0:
-					p = 0.0001
+					p = 1e-6
 				rowDistance = posZ / p
 
-				# calculate the real world step vector we have to add for each x (parallel to screen)
-				stepX = rowDistance * (rayDirRightX - rayDirLeftX) / screen_w
-				stepY = rowDistance * (rayDirRightY - rayDirLeftY) / screen_w
+				leftX = rayDirLeftX + hor * dirX
+				leftY = rayDirLeftY + hor * dirY
+				floorX = px + rowDistance * leftX
+				floorY = py + rowDistance * leftY
 
-				# real world coordinates of the leftmost ray on the current row
-				floorX = px + rowDistance * rayDirLeftX
-				floorY = py + rowDistance * rayDirLeftY
+				if floor_tex_arr is not None:
+					tx = ((floorX - np.floor(floorX)) * ftw).astype(np.int64) % ftw
+					ty = ((floorY - np.floor(floorY)) * fth).astype(np.int64) % fth
+					colors = floor_tex_arr[tx, ty]
+					shade = max(30, 255 - int(rowDistance * 8))
+					colors = (colors * (shade / 255.0)).astype(np.uint8)
+					screen_arr[:, y, :] = colors
+				else:
+					screen_arr[:, y, :] = (50, 50, 50)
 
-				for x in range(screen_w):
-					cellX = int(floorX)
-					cellY = int(floorY)
-					if floor_tex:
-						tx = int((floorX - cellX) * ftw) % ftw
-						ty = int((floorY - cellY) * fth) % fth
-						col = floor_tex.get_at((tx, ty))
-						# distance shading
-						shade = max(30, 255 - int(rowDistance * 8))
-						col = (col[0] * shade // 255, col[1] * shade // 255, col[2] * shade // 255)
-						# set pixel
-						screen.set_at((x, y), col)
-					else:
-						# simple dark floor
-						pygame.draw.rect(screen, (50, 50, 50), (x, y, 1, 1))
-					floorX += stepX
-					floorY += stepY
-
-			# draw ceiling (top half) by casting to the ceiling plane symmetrically
+			# draw ceiling rows
 			for y in range(0, screen_h // 2):
 				p = screen_h / 2 - y
 				if p == 0:
-					p = 0.0001
+					p = 1e-6
 				rowDistance = posZ / p
 
-				stepX = rowDistance * (rayDirRightX - rayDirLeftX) / screen_w
-				stepY = rowDistance * (rayDirRightY - rayDirLeftY) / screen_w
+				leftX = rayDirLeftX + hor * dirX
+				leftY = rayDirLeftY + hor * dirY
+				ceilingX = px + rowDistance * leftX
+				ceilingY = py + rowDistance * leftY
 
-				ceilingX = px + rowDistance * rayDirLeftX
-				ceilingY = py + rowDistance * rayDirLeftY
-				for x in range(screen_w):
-					cellX = int(ceilingX)
-					cellY = int(ceilingY)
-					if ceil_tex:
-						tx = int((ceilingX - cellX) * ctw) % ctw
-						ty = int((ceilingY - cellY) * cth) % cth
-						col = ceil_tex.get_at((tx, ty))
-						shade = max(30, 255 - int(rowDistance * 8))
-						col = (col[0] * shade // 255, col[1] * shade // 255, col[2] * shade // 255)
-						screen.set_at((x, y), col)
-					else:
-						# simple sky
-						pygame.draw.rect(screen, (100, 150, 200), (x, y, 1, 1))
-					ceilingX += stepX
-					ceilingY += stepY
+				if ceil_tex_arr is not None:
+					tx = ((ceilingX - np.floor(ceilingX)) * ctw).astype(np.int64) % ctw
+					ty = ((ceilingY - np.floor(ceilingY)) * cth).astype(np.int64) % cth
+					colors = ceil_tex_arr[tx, ty]
+					shade = max(30, 255 - int(rowDistance * 8))
+					colors = (colors * (shade / 255.0)).astype(np.uint8)
+					screen_arr[:, y, :] = colors
+				else:
+					screen_arr[:, y, :] = (100, 150, 200)
+
+			# release the array view to update the surface
+			del screen_arr
 		else:
 			# fallback: tile existing textures or solid colors as before
 			if ceil_tex:
