@@ -107,9 +107,10 @@ def main():
 	# FLOOR_STEP controls floor/ceiling sampling horizontal resolution.
 	# Increase to 2-6 to reduce cost (bigger means faster but blockier).
 	FLOOR_STEP = 4
-	# By default we keep the fast tiled floor/ceiling to preserve responsiveness.
-	# Press 'f' in-game to toggle perspective (world-anchored) floor/ceiling rendering.
-	USE_PERSPECTIVE_FLOOR = False
+	# By default use perspective (world-anchored) floor/ceiling rendering but render at reduced
+	# vertical resolution and scale up for speed. REDUCE_FACTOR=2 renders at half height.
+	USE_PERSPECTIVE_FLOOR = True
+	REDUCE_FACTOR = 2
 	screen_w, screen_h = 800 * SCALE, 480 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
@@ -198,9 +199,7 @@ def main():
 				running = False
 			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 				running = False
-			elif event.type == pygame.KEYDOWN and event.key == pygame.K_f:
-				USE_PERSPECTIVE_FLOOR = not USE_PERSPECTIVE_FLOOR
-				print('Perspective floor:', USE_PERSPECTIVE_FLOOR)
+			# (removed runtime F toggle; perspective floor is enabled by default)
 
 		keys = pygame.key.get_pressed()
 		if keys[pygame.K_a]:
@@ -249,59 +248,65 @@ def main():
 
 			posZ = 0.5 * screen_h  # distance from camera to the projection plane
 
-			# get a writable view of the screen pixel buffer (width, height, 3)
-			screen_arr = pygame.surfarray.pixels3d(screen)
+			# reduced-height rendering: build small buffers and scale up
+			half_h = screen_h // 2
+			reduced_h = max(1, half_h // REDUCE_FACTOR)
 			cols = np.arange(screen_w)
 			hor = cols / float(screen_w)
 			dirX = rayDirRightX - rayDirLeftX
 			dirY = rayDirRightY - rayDirLeftY
 
-			# draw floor rows quickly using numpy indexing
-			for y in range(screen_h // 2, screen_h):
-				p = y - screen_h / 2
-				if p == 0:
-					p = 1e-6
-				rowDistance = posZ / p
-
-				leftX = rayDirLeftX + hor * dirX
-				leftY = rayDirLeftY + hor * dirY
-				floorX = px + rowDistance * leftX
-				floorY = py + rowDistance * leftY
-
-				if floor_tex_arr is not None:
+			# floor: small buffer (width, reduced_h, 3)
+			if floor_tex_arr is not None:
+				floor_small = np.zeros((screen_w, reduced_h, 3), dtype=np.uint8)
+				for sy in range(reduced_h):
+					screen_y = half_h + sy * REDUCE_FACTOR + REDUCE_FACTOR // 2
+					p = screen_y - half_h
+					if p == 0:
+						p = 1e-6
+					rowDistance = posZ / p
+					leftX = rayDirLeftX + hor * dirX
+					leftY = rayDirLeftY + hor * dirY
+					floorX = px + rowDistance * leftX
+					floorY = py + rowDistance * leftY
 					tx = ((floorX - np.floor(floorX)) * ftw).astype(np.int64) % ftw
 					ty = ((floorY - np.floor(floorY)) * fth).astype(np.int64) % fth
 					colors = floor_tex_arr[tx, ty]
 					shade = max(30, 255 - int(rowDistance * 8))
 					colors = (colors * (shade / 255.0)).astype(np.uint8)
-					screen_arr[:, y, :] = colors
-				else:
-					screen_arr[:, y, :] = (50, 50, 50)
+					floor_small[:, sy, :] = colors
+				# create surface and scale up
+				floor_surf = pygame.surfarray.make_surface(floor_small)
+				floor_surf = pygame.transform.scale(floor_surf, (screen_w, half_h))
+				screen.blit(floor_surf, (0, half_h))
+			else:
+				# solid color fallback
+				pygame.draw.rect(screen, (50, 50, 50), (0, half_h, screen_w, half_h))
 
-			# draw ceiling rows
-			for y in range(0, screen_h // 2):
-				p = screen_h / 2 - y
-				if p == 0:
-					p = 1e-6
-				rowDistance = posZ / p
-
-				leftX = rayDirLeftX + hor * dirX
-				leftY = rayDirLeftY + hor * dirY
-				ceilingX = px + rowDistance * leftX
-				ceilingY = py + rowDistance * leftY
-
-				if ceil_tex_arr is not None:
+			# ceiling
+			if ceil_tex_arr is not None:
+				ceil_small = np.zeros((screen_w, reduced_h, 3), dtype=np.uint8)
+				for sy in range(reduced_h):
+					screen_y = sy * REDUCE_FACTOR + REDUCE_FACTOR // 2
+					p = half_h - screen_y
+					if p == 0:
+						p = 1e-6
+					rowDistance = posZ / p
+					leftX = rayDirLeftX + hor * dirX
+					leftY = rayDirLeftY + hor * dirY
+					ceilingX = px + rowDistance * leftX
+					ceilingY = py + rowDistance * leftY
 					tx = ((ceilingX - np.floor(ceilingX)) * ctw).astype(np.int64) % ctw
 					ty = ((ceilingY - np.floor(ceilingY)) * cth).astype(np.int64) % cth
 					colors = ceil_tex_arr[tx, ty]
 					shade = max(30, 255 - int(rowDistance * 8))
 					colors = (colors * (shade / 255.0)).astype(np.uint8)
-					screen_arr[:, y, :] = colors
-				else:
-					screen_arr[:, y, :] = (100, 150, 200)
-
-			# release the array view to update the surface
-			del screen_arr
+					ceil_small[:, sy, :] = colors
+				ceil_surf = pygame.surfarray.make_surface(ceil_small)
+				ceil_surf = pygame.transform.scale(ceil_surf, (screen_w, half_h))
+				screen.blit(ceil_surf, (0, 0))
+			else:
+				pygame.draw.rect(screen, (100, 150, 200), (0, 0, screen_w, half_h))
 		else:
 			# fallback: tile existing textures or solid colors as before
 			if ceil_tex:
