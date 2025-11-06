@@ -235,3 +235,4 @@ while running:
 # 清理
 cap.release()
 pygame.quit()
+face_mesh.close()
