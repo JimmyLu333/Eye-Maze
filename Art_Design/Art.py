@@ -111,6 +111,8 @@ def main():
 	# load wall textures from Art_Design/textures/ (if any)
 	textures = []
 	tex_dir = os.path.join(os.path.dirname(__file__), 'textures')
+	floor_tex = None
+	ceil_tex = None
 	if os.path.isdir(tex_dir):
 		# prefer files that contain 'eye' in the name so your provided eye image is used first
 		files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
@@ -118,11 +120,22 @@ def main():
 		for fn in files:
 			try:
 				surf = pygame.image.load(os.path.join(tex_dir, fn)).convert()
-				textures.append(surf)
+				# detect floor/ceiling by name
+				lname = fn.lower()
+				if 'floor' in lname:
+					floor_tex = surf
+				elif 'ceiling' in lname or 'ceil' in lname:
+					ceil_tex = surf
+				else:
+					textures.append(surf)
 			except Exception as e:
 				print(f"Warning: failed loading texture {fn}: {e}")
 	if textures:
 		print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
+	if floor_tex:
+		print('Loaded floor texture')
+	if ceil_tex:
+		print('Loaded ceiling texture')
 
 	# maze params
 	map_w, map_h = 21, 15  # odd sizes
@@ -196,9 +209,110 @@ def main():
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
 
-		# render
-		screen.fill((100, 150, 200))  # sky
-		pygame.draw.rect(screen, (50, 50, 50), (0, screen_h // 2, screen_w, screen_h // 2))
+		# render: perspective-correct floor & ceiling (floor casting) so textures are fixed to world
+		# based on Lode's raycasting floorcasting approach. Falls back to simple tiling/colors
+		if floor_tex or ceil_tex:
+			# prefetch texture sizes
+			if floor_tex:
+				ftw, fth = floor_tex.get_size()
+			if ceil_tex:
+				ctw, cth = ceil_tex.get_size()
+
+			# direction vectors for left and right edge of the screen
+			rayDirLeftX = math.cos(pa - half_fov)
+			rayDirLeftY = math.sin(pa - half_fov)
+			rayDirRightX = math.cos(pa + half_fov)
+			rayDirRightY = math.sin(pa + half_fov)
+
+			posZ = 0.5 * screen_h  # distance from camera to the projection plane
+
+			# draw floor (bottom half)
+			for y in range(screen_h // 2, screen_h):
+				p = y - screen_h / 2
+				if p == 0:
+					p = 0.0001
+				rowDistance = posZ / p
+
+				# calculate the real world step vector we have to add for each x (parallel to screen)
+				stepX = rowDistance * (rayDirRightX - rayDirLeftX) / screen_w
+				stepY = rowDistance * (rayDirRightY - rayDirLeftY) / screen_w
+
+				# real world coordinates of the leftmost ray on the current row
+				floorX = px + rowDistance * rayDirLeftX
+				floorY = py + rowDistance * rayDirLeftY
+
+				for x in range(screen_w):
+					cellX = int(floorX)
+					cellY = int(floorY)
+					if floor_tex:
+						tx = int((floorX - cellX) * ftw) % ftw
+						ty = int((floorY - cellY) * fth) % fth
+						col = floor_tex.get_at((tx, ty))
+						# distance shading
+						shade = max(30, 255 - int(rowDistance * 8))
+						col = (col[0] * shade // 255, col[1] * shade // 255, col[2] * shade // 255)
+						# set pixel
+						screen.set_at((x, y), col)
+					else:
+						# simple dark floor
+						pygame.draw.rect(screen, (50, 50, 50), (x, y, 1, 1))
+					floorX += stepX
+					floorY += stepY
+
+			# draw ceiling (top half) by casting to the ceiling plane symmetrically
+			for y in range(0, screen_h // 2):
+				p = screen_h / 2 - y
+				if p == 0:
+					p = 0.0001
+				rowDistance = posZ / p
+
+				stepX = rowDistance * (rayDirRightX - rayDirLeftX) / screen_w
+				stepY = rowDistance * (rayDirRightY - rayDirLeftY) / screen_w
+
+				ceilingX = px + rowDistance * rayDirLeftX
+				ceilingY = py + rowDistance * rayDirLeftY
+				for x in range(screen_w):
+					cellX = int(ceilingX)
+					cellY = int(ceilingY)
+					if ceil_tex:
+						tx = int((ceilingX - cellX) * ctw) % ctw
+						ty = int((ceilingY - cellY) * cth) % cth
+						col = ceil_tex.get_at((tx, ty))
+						shade = max(30, 255 - int(rowDistance * 8))
+						col = (col[0] * shade // 255, col[1] * shade // 255, col[2] * shade // 255)
+						screen.set_at((x, y), col)
+					else:
+						# simple sky
+						pygame.draw.rect(screen, (100, 150, 200), (x, y, 1, 1))
+					ceilingX += stepX
+					ceilingY += stepY
+		else:
+			# fallback: tile existing textures or solid colors as before
+			if ceil_tex:
+				# tile the ceiling texture across top half
+				tw, th = ceil_tex.get_size()
+				# choose tile width (smaller tiles for more repetition)
+				tile_w = min(256 * SCALE, tw)
+				tile_h = max(16, int(tile_w * th / tw))
+				scaled = pygame.transform.scale(ceil_tex, (tile_w, tile_h))
+				for yy in range(0, screen_h // 2, tile_h):
+					for xx in range(0, screen_w, tile_w):
+						screen.blit(scaled, (xx, yy))
+			else:
+				screen.fill((100, 150, 200))  # sky
+
+			if floor_tex:
+				# tile the floor texture across bottom half
+				tw, th = floor_tex.get_size()
+				# choose tile width
+				tile_w = min(256 * SCALE, tw)
+				tile_h = max(16, int(tile_w * th / tw))
+				scaled = pygame.transform.scale(floor_tex, (tile_w, tile_h))
+				for yy in range(screen_h // 2, screen_h, tile_h):
+					for xx in range(0, screen_w, tile_w):
+						screen.blit(scaled, (xx, yy))
+			else:
+				pygame.draw.rect(screen, (50, 50, 50), (0, screen_h // 2, screen_w, screen_h // 2))
 
 		ray_angle = pa - half_fov
 		slice_w = int(screen_w / num_rays) + 1
