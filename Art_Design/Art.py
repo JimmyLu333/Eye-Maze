@@ -100,6 +100,33 @@ def cast_ray(px, py, angle, maze, max_depth=100):
 	return perpWallDist, True, hit_x, hit_y, mapX, mapY, side
 
 
+def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
+	"""Apply a subtle procedural blood/smudge overlay to the given surface.
+	This is a lightweight fallback so code paths that call this helper won't fail
+	if a more advanced generator isn't present.
+	"""
+	try:
+		import random as _rnd
+		if seed is not None:
+			_rnd.seed(seed)
+		w, h = surf.get_size()
+		overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+		for i in range(max(1, droplets)):
+			rx = _rnd.randint(0, max(0, w - 1))
+			ry = _rnd.randint(0, max(0, h - 1))
+			r = _rnd.randint(3, max(4, min(w, h) // 8))
+			col = (120, 0, 0, int(alpha))
+			pygame.draw.circle(overlay, col, (rx, ry), r)
+		# blend the overlay on top using additive alpha so it's subtle
+		try:
+			surf.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+		except Exception:
+			surf.blit(overlay, (0, 0))
+	except Exception:
+		# non-fatal: if anything fails, silently continue
+		return
+
+
 def main():
 	pygame.init()
 	# SCALE increases internal pixel density; set to 1 (original), 2 (double), or 3 (triple)
@@ -119,6 +146,8 @@ def main():
 	DESATURATE = 0.35
 	# Ceiling can have its own stronger desaturation factor
 	CEIL_DESATURATE = 0.8
+	# Overlay brightness: 1.0 = unchanged, >1.0 makes the overlay text/brighter
+	OVERLAY_BRIGHTNESS = 1.6
 	screen_w, screen_h = 800 * SCALE, 480 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
@@ -128,23 +157,37 @@ def main():
 	tex_dir = os.path.join(os.path.dirname(__file__), 'textures')
 	floor_tex = None
 	ceil_tex = None
+	# candidate overlay image (user-uploaded PNG) - we'll pick the 2nd non-floor/ceil texture if present
+	overlay_candidate = None
 	if os.path.isdir(tex_dir):
-		# prefer files that contain 'eye' in the name so your provided eye image is used first
 		files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+		# prefer files that contain 'eye' in the name so your provided eye image is used first
 		files.sort(key=lambda n: (0 if 'eye' in n.lower() else 1, n.lower()))
+		wall_candidates = []
 		for fn in files:
 			try:
-				surf = pygame.image.load(os.path.join(tex_dir, fn)).convert()
-				# detect floor/ceiling by name
+				raw = pygame.image.load(os.path.join(tex_dir, fn))
 				lname = fn.lower()
+				# keep alpha for PNGs so overlays preserve transparency
+				if fn.lower().endswith('.png'):
+					surf = raw.convert_alpha()
+				else:
+					surf = raw.convert()
+
 				if 'floor' in lname:
 					floor_tex = surf
 				elif 'ceiling' in lname or 'ceil' in lname:
 					ceil_tex = surf
 				else:
-					textures.append(surf)
+					wall_candidates.append((fn, surf))
 			except Exception as e:
 				print(f"Warning: failed loading texture {fn}: {e}")
+		# order wall candidates to prefer eye images first
+		wall_candidates.sort(key=lambda t: (0 if 'eye' in t[0].lower() else 1, t[0].lower()))
+		textures = [t[1] for t in wall_candidates]
+		# if user uploaded an extra PNG (not eye/floor/ceiling), pick it as an overlay
+		if len(textures) > 1:
+			overlay_candidate = textures[1]
 	if textures:
 		print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
 	if floor_tex:
@@ -188,6 +231,104 @@ def main():
 					continue
 				break
 	print(f"Exit set at: ({exit_x}, {exit_y}), start at: ({start_ix}, {start_iy})")
+
+	# --- Graffiti / Overlay: place a short message or user-uploaded PNG near the spawn point on a nearby wall.
+	GRAFFITI_TEXT = "Trust your eyes... but don't rely on them."
+	graffiti_overlays = {}
+	# prefer placing on an adjacent wall tile; search NESW
+	adj_dirs = [(1,0),(-1,0),(0,1),(0,-1)]
+	placed = False
+	for dx, dy in adj_dirs:
+		gx, gy = start_ix + dx, start_iy + dy
+		if 0 <= gx < map_w and 0 <= gy < map_h and maze[gy][gx] == 1:
+			# if the user provided an extra texture (overlay_candidate), use it directly
+			if overlay_candidate is not None:
+				try:
+					# scale overlay to fit the base wall texture while preserving aspect ratio
+					base_tw, base_th = (textures[0].get_size() if textures else (128, 128))
+					ow, oh = overlay_candidate.get_size()
+					# compute scale to fit inside base tile
+					if ow == 0 or oh == 0:
+						scale = 1.0
+					else:
+						scale = min(base_tw / ow, base_th / oh)
+					new_w = max(1, int(ow * scale))
+					new_h = max(1, int(oh * scale))
+					scaled = pygame.transform.smoothscale(overlay_candidate, (new_w, new_h))
+					# create a base surface of exact tile size and blit the scaled overlay centered
+					over = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
+					ox = (base_tw - new_w) // 2
+					oy = (base_th - new_h) // 2
+					over.blit(scaled, (ox, oy))
+					# brighten the overlay slightly so text reads better against the eye texture
+					try:
+						if OVERLAY_BRIGHTNESS > 1.0:
+							# additive amount scaled to avoid immediate clipping
+							add_amount = int(255 * (OVERLAY_BRIGHTNESS - 1.0) * 0.6)
+							add_amount = max(0, min(255, add_amount))
+							# bias the boost toward red to make the overlay appear more vivid
+							r_add = max(0, min(255, int(add_amount * 1.4)))
+							g_add = max(0, min(255, int(add_amount * 0.35)))
+							b_add = max(0, min(255, int(add_amount * 0.35)))
+							boost = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
+							boost.fill((r_add, g_add, b_add, 0))
+							try:
+								over.blit(boost, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+							except Exception:
+								over.blit(boost, (0, 0))
+					except Exception:
+						pass
+					graffiti_overlays[(gx, gy)] = over
+					placed = True
+					break
+				except Exception:
+					# fallback to text-based graffiti if overlay fails
+					pass
+
+			# fallback: create an overlay surface sized to wall texture if available, else 128x128
+			if textures:
+				base_tw, base_th = textures[0].get_size()
+			else:
+				base_tw, base_th = 128, 128
+			over = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
+			# hand-written-ish font attempt
+			try:
+				f = pygame.font.SysFont('Segoe Script', max(12, base_th // 8))
+			except Exception:
+				f = pygame.font.SysFont(None, max(12, base_th // 8))
+			# render text lines and blit with slight rotation
+			lines = [GRAFFITI_TEXT]
+			yoff = base_th // 3
+			for i, line in enumerate(lines):
+				# use a more vivid red for graffiti text (saturated red)
+				base_color = (220, 30, 30)
+				try:
+					# optionally amplify slightly by OVERLAY_BRIGHTNESS but keep saturation
+					tc = (
+						min(255, int(base_color[0] * OVERLAY_BRIGHTNESS)),
+						min(255, int(base_color[1] * 0.9)),
+						min(255, int(base_color[2] * 0.9)),
+					)
+				except Exception:
+					tc = base_color
+				txt = f.render(line, True, tc)
+				# scale down a bit
+				tw, th = txt.get_size()
+				if tw > base_tw - 10:
+					scale = (base_tw - 10) / tw
+					txt = pygame.transform.smoothscale(txt, (int(tw * scale), int(th * scale)))
+				# small rotation
+				txt = pygame.transform.rotate(txt, random.uniform(-8, 8))
+				over.blit(txt, (max(2, base_tw//8 - tw//8), yoff + i * (th + 2)))
+			# slight smudge to mimic worn writing if helper exists
+			try:
+				_apply_blood_overlay(over, droplets=2, alpha=30, seed=None)
+			except Exception:
+				pass
+			graffiti_overlays[(gx, gy)] = over
+			placed = True
+			break
+	# if no adjacent wall, don't place graffiti (could extend to floor later)
 
 	move_speed = 3.0 * SCALE
 	rot_speed = 2.0
@@ -431,7 +572,38 @@ def main():
 						col_surf.blit(shade, (0, 0), special_flags=pygame.BLEND_MULT)
 					except Exception:
 						pass
+					# draw the wall slice
 					screen.blit(col_surf, (x, screen_h // 2 - proj_height // 2))
+					# if a graffiti overlay exists for this wall tile, draw its column on top
+					try:
+						if (mpx, mpy) in graffiti_overlays:
+							over = graffiti_overlays[(mpx, mpy)]
+							# extract matching column from overlay and scale to slice
+							ov_col = over.subsurface((u, 0, 1, th)).copy()
+							ov_col = pygame.transform.scale(ov_col, (slice_w, proj_height)).convert_alpha()
+							# determine if we need to horizontally flip the overlay column so text reads correctly
+							try:
+								# determine flip by comparing wall tangent with player's right vector
+								# wall tangent: side==0 -> (0,1) (y increases), side==1 -> (1,0) (x increases)
+								# player's right vector = (-sin(pa), cos(pa))
+								right_x = -math.sin(pa)
+								right_y = math.cos(pa)
+								flip_h = False
+								if side == 0:
+									# tangent (0,1) -> dot = right_y
+									if right_y < 0:
+										flip_h = True
+								else:
+									# tangent (1,0) -> dot = right_x
+									if right_x < 0:
+										flip_h = True
+								if flip_h:
+									ov_col = pygame.transform.flip(ov_col, True, False)
+							except Exception:
+								pass
+							screen.blit(ov_col, (x, screen_h // 2 - proj_height // 2))
+					except Exception:
+						pass
 				except Exception:
 					color_val = max(30, 255 - int(depth * 12))
 					col = (color_val, color_val, color_val)
