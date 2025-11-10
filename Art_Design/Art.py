@@ -151,6 +151,11 @@ def main():
 	screen_w, screen_h = 800 * SCALE, 480 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
+	# small persistent ESC hint in top-left (rendered each frame)
+	try:
+		esc_ui_font = pygame.font.SysFont(None, 18 * SCALE)
+	except Exception:
+		esc_ui_font = pygame.font.SysFont(None, 18)
 
 	# load wall textures from Art_Design/textures/ (if any)
 	textures = []
@@ -746,6 +751,10 @@ def main():
 
 		# mini-map
 		mm_scale = 8 * SCALE
+		# mini-map rectangle (top-left) so we can position HUD items relative to it
+		mm_w = map_w * mm_scale
+		mm_h = map_h * mm_scale
+		mm_rect = pygame.Rect(0, 0, mm_w, mm_h)
 		for y in range(map_h):
 			for x in range(map_w):
 				rect = pygame.Rect(x * mm_scale, y * mm_scale, mm_scale - 1, mm_scale - 1)
@@ -756,6 +765,21 @@ def main():
 		pygame.draw.rect(screen, (0, 200, 0), ex_rect)
 		# player on mini-map
 		pygame.draw.circle(screen, (255, 0, 0), (int(px * mm_scale), int(py * mm_scale)), max(2, 3 * SCALE))
+		# If we're still in the tutorial (not official), show an objective UI centered beneath the mini-map
+		if not is_official:
+			try:
+				# slightly smaller handwritten-style font for objective label and center it beneath the mini-map
+				obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
+				txt_obj = obj_font.render('Objective: Exit the maze', True, (255, 255, 255))
+				# center horizontally under the minimap and place a small vertical gap
+				obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
+				obj_y = mm_rect.bottom + int(6 * SCALE)
+				# keep a small minimum top margin in case the map is very low
+				if obj_y < 4 * SCALE:
+					obj_y = 4 * SCALE
+				screen.blit(txt_obj, (obj_x, obj_y))
+			except Exception:
+				pass
 
 		# debug: print integer player cell and exit cell on first frame
 		if frame_count == 0:
@@ -838,6 +862,20 @@ def main():
 				clock.tick(30)
 
 		frame_count += 1
+		# draw persistent ESC hint in top-right so players know they can quit anytime
+		try:
+			txt = esc_ui_font.render('× ESC', True, (255, 255, 255))
+			pad = 6 * SCALE
+			bg_w = txt.get_width() + pad * 2
+			bg_h = txt.get_height() + pad * 2
+			bg = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
+			# semi-transparent black background
+			bg.fill((0, 0, 0, 160))
+			bg.blit(txt, (pad, pad))
+			# position top-right with small margin
+			screen.blit(bg, (screen_w - bg_w - 8 * SCALE, 8 * SCALE))
+		except Exception:
+			pass
 		pygame.display.flip()
 
 	pygame.quit()
