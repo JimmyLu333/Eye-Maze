@@ -223,6 +223,50 @@ def main():
 			overlay_candidate = textures[1]
 	if textures:
 		print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
+	# Attempt to find any animated GIF in the textures folder for the official level
+	official_anim_frames = None
+	official_anim_durations = None
+	# prefer GIF files (animated); pick the first .gif we find
+	gif_files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith('.gif')]
+	if gif_files:
+		gif_path = os.path.join(tex_dir, gif_files[0])
+		# try to use Pillow (PIL) to extract frames and durations
+		try:
+			from PIL import Image
+			im = Image.open(gif_path)
+			frames = []
+			durations = []
+			# limit frame size to reduce GPU/CPU load if very large
+			MAX_DIM = 512
+			for frame_index in range(0, getattr(im, 'n_frames', 1)):
+				im.seek(frame_index)
+				# convert to RGBA
+				fr = im.convert('RGBA')
+				# downscale if necessary
+				w, h = fr.size
+				if max(w, h) > MAX_DIM:
+					scale = MAX_DIM / float(max(w, h))
+					fr = fr.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+				# get duration in ms (fallback to 100ms)
+				d = fr.info.get('duration', im.info.get('duration', 100)) if hasattr(fr, 'info') else im.info.get('duration', 100)
+				# convert to pygame surface
+				mode = fr.mode
+				data = fr.tobytes()
+				ps = pygame.image.fromstring(data, fr.size, mode)
+				frames.append(ps.convert_alpha())
+				durations.append(d)
+			official_anim_frames = frames
+			official_anim_durations = durations
+		except Exception:
+			# Pillow not available or loading failed: fall back to loading as single Surface
+			try:
+				img = pygame.image.load(gif_path)
+				if gif_path.lower().endswith('.gif'):
+					# many pygame builds only load first frame; keep a single-frame list
+					official_anim_frames = [img.convert_alpha() if img.get_flags() & pygame.SRCALPHA else img.convert()]
+				official_anim_durations = [100]
+			except Exception as e:
+				print(f"Warning: failed to load animated GIF {gif_path}: {e}")
 	if floor_tex:
 		print('Loaded floor texture')
 	if ceil_tex:
@@ -612,8 +656,28 @@ def main():
 			x = int(r * (screen_w / num_rays))
 
 			if hit and textures:
-				# choose texture (use first texture so all walls show the eye image)
-				tex = textures[0]
+				# choose texture: if we're in the official level and an animated GIF was
+				# provided, use the appropriate animation frame; otherwise use textures[0].
+				if is_official and official_anim_frames:
+					# choose current frame based on time and frame durations
+					try:
+						cur_ms = pygame.time.get_ticks() - start_time
+						# accumulate durations to find frame index
+						total = sum(official_anim_durations) if official_anim_durations else 100
+						pos = cur_ms % total
+						running = 0
+						idx = 0
+						for i, d in enumerate(official_anim_durations):
+							running += d
+							if pos < running:
+								idx = i
+								break
+						tex = official_anim_frames[idx]
+					except Exception:
+						tex = official_anim_frames[0]
+				else:
+					# choose texture (use first texture so all walls show the eye image)
+					tex = textures[0]
 				tw, th = tex.get_size()
 				# compute wall_x: where exactly wall was hit (fractional part within the tile)
 				if side == 0:
