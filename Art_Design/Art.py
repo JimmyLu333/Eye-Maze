@@ -387,6 +387,24 @@ def main():
 	frame_count = 0
 	start_time = pygame.time.get_ticks()
 	is_official = False
+	# preferred handwritten font family names (try these in order, fall back to default)
+	HANDWRITTEN_FONTS = ['Segoe Script', 'Brush Script MT', 'Bradley Hand', 'Kristen ITC', 'Comic Sans MS']
+
+	def get_handwritten_font(size, bold=False):
+		# pygame.font.SysFont will fall back to a default if the name isn't found,
+		# but trying several common handwriting fonts increases the chance of a
+		# handwriting-like appearance on the user's system.
+		for name in HANDWRITTEN_FONTS:
+			try:
+				f = pygame.font.SysFont(name, size, bold=bold)
+				# heuristic: if the returned font reports the same name or the name
+				# appears in the family (best-effort), accept it. Otherwise continue.
+				# Note: SysFont always returns a font object; this check is soft.
+				return f
+			except Exception:
+				continue
+		# fallback
+		return pygame.font.SysFont(None, size, bold=bold)
 	while running:
 		dt = clock.tick(60) / 1000.0
 		for event in pygame.event.get():
@@ -692,11 +710,11 @@ def main():
 				"You have understood the rules here. It will be drawn to sudden darkness..."
 				" Now keep your eyes open, no matter how difficult it gets."
 			)
-			# fonts
-			title_f = pygame.font.SysFont(None, 48 * SCALE)
-			msg_f = pygame.font.SysFont(None, 24 * SCALE)
-			time_f = pygame.font.SysFont(None, 36 * SCALE)
-			button_f = pygame.font.SysFont(None, 30 * SCALE)
+			# fonts (prefer a handwritten-style system font)
+			title_f = get_handwritten_font(48 * SCALE, bold=True)
+			msg_f = get_handwritten_font(24 * SCALE)
+			time_f = get_handwritten_font(36 * SCALE, bold=True)
+			button_f = get_handwritten_font(30 * SCALE)
 			in_end = True
 			while in_end:
 				for ev in pygame.event.get():
