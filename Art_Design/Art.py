@@ -159,10 +159,17 @@ def main():
 	ceil_tex = None
 	# candidate overlay image (user-uploaded PNG) - we'll pick the 2nd non-floor/ceil texture if present
 	overlay_candidate = None
+	# explicit image overlay (e.g. a user-supplied PNG that contains the text/graffiti)
+	# prefer filenames containing these keywords (case-insensitive) and keep them
+	# out of the wall texture list so they can be composited on top of the walls.
+	overlay_image = None
 	if os.path.isdir(tex_dir):
 		files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-		# prefer files that contain 'eye' in the name so your provided eye image is used first
-		files.sort(key=lambda n: (0 if 'eye' in n.lower() else 1, n.lower()))
+		# prefer files that contain 'eyes' (exact plural) first, then 'eye', so
+		# an uploaded file named like 'eyes_pattern 2.png' will be preferred over
+		# 'eye_pattern.png' without requiring the user to remove the old file.
+		# sort key: 0 = contains 'eyes', 1 = contains 'eye' (but not 'eyes'), 2 = other
+		files.sort(key=lambda n: (0 if 'eyes' in n.lower() else (1 if 'eye' in n.lower() else 2), n.lower()))
 		wall_candidates = []
 		for fn in files:
 			try:
@@ -174,6 +181,30 @@ def main():
 				else:
 					surf = raw.convert()
 
+				# Darken any 'eyes' texture by multiplying its RGB channels so the
+				# eyes pattern looks moodier. This preserves alpha.
+				try:
+					if 'eyes' in lname:
+						# factor: 0.0 (black) .. 1.0 (original). Adjust here as desired.
+						EYES_DARKEN = 0.35
+						v = max(0, min(255, int(255 * EYES_DARKEN)))
+						dark = pygame.Surface(surf.get_size(), pygame.SRCALPHA).convert_alpha()
+						dark.fill((v, v, v, 255))
+						try:
+							surf.blit(dark, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+						except Exception:
+							surf.blit(dark, (0, 0))
+				except Exception:
+					# non-fatal
+					pass
+
+				# Detect obvious overlay/text images by filename keywords and reserve
+				# them for graffiti overlays instead of making them wall textures.
+				if any(k in lname for k in ('trust', 'text', 'graff', 'overlay')):
+					# keep alpha so transparency is preserved
+					overlay_image = surf
+					continue
+
 				if 'floor' in lname:
 					floor_tex = surf
 				elif 'ceiling' in lname or 'ceil' in lname:
@@ -182,11 +213,13 @@ def main():
 					wall_candidates.append((fn, surf))
 			except Exception as e:
 				print(f"Warning: failed loading texture {fn}: {e}")
-		# order wall candidates to prefer eye images first
-		wall_candidates.sort(key=lambda t: (0 if 'eye' in t[0].lower() else 1, t[0].lower()))
+		# order wall candidates to prefer 'eyes' images first, then 'eye', then others
+		wall_candidates.sort(key=lambda t: (0 if 'eyes' in t[0].lower() else (1 if 'eye' in t[0].lower() else 2), t[0].lower()))
 		textures = [t[1] for t in wall_candidates]
-		# if user uploaded an extra PNG (not eye/floor/ceiling), pick it as an overlay
-		if len(textures) > 1:
+		# if user uploaded an extra PNG (not eye/floor/ceiling), pick the 2nd texture
+		# as a fallback overlay candidate. However prefer an explicit overlay_image
+		# (detected by filename) when available.
+		if overlay_image is None and len(textures) > 1:
 			overlay_candidate = textures[1]
 	if textures:
 		print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
@@ -241,12 +274,15 @@ def main():
 	for dx, dy in adj_dirs:
 		gx, gy = start_ix + dx, start_iy + dy
 		if 0 <= gx < map_w and 0 <= gy < map_h and maze[gy][gx] == 1:
-			# if the user provided an extra texture (overlay_candidate), use it directly
-			if overlay_candidate is not None:
+			# if the user provided an explicit overlay image (overlay_image) prefer it
+			# so a file like 'Trust your sight...png' will be composited on top of
+			# the base wall texture instead of being used as a wall image.
+			chosen_overlay = overlay_image if overlay_image is not None else overlay_candidate
+			if chosen_overlay is not None:
 				try:
 					# scale overlay to fit the base wall texture while preserving aspect ratio
 					base_tw, base_th = (textures[0].get_size() if textures else (128, 128))
-					ow, oh = overlay_candidate.get_size()
+					ow, oh = chosen_overlay.get_size()
 					# compute scale to fit inside base tile
 					if ow == 0 or oh == 0:
 						scale = 1.0
@@ -254,30 +290,38 @@ def main():
 						scale = min(base_tw / ow, base_th / oh)
 					new_w = max(1, int(ow * scale))
 					new_h = max(1, int(oh * scale))
-					scaled = pygame.transform.smoothscale(overlay_candidate, (new_w, new_h))
-					# create a base surface of exact tile size and blit the scaled overlay centered
+					scaled = pygame.transform.smoothscale(chosen_overlay, (new_w, new_h))
+					# create a base surface of exact tile size and blit the wall texture
 					over = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
-					ox = (base_tw - new_w) // 2
-					oy = (base_th - new_h) // 2
-					over.blit(scaled, (ox, oy))
-					# brighten the overlay slightly so text reads better against the eye texture
-					try:
-						if OVERLAY_BRIGHTNESS > 1.0:
-							# additive amount scaled to avoid immediate clipping
-							add_amount = int(255 * (OVERLAY_BRIGHTNESS - 1.0) * 0.6)
-							add_amount = max(0, min(255, add_amount))
-							# bias the boost toward red to make the overlay appear more vivid
-							r_add = max(0, min(255, int(add_amount * 1.4)))
-							g_add = max(0, min(255, int(add_amount * 0.35)))
-							b_add = max(0, min(255, int(add_amount * 0.35)))
-							boost = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
-							boost.fill((r_add, g_add, b_add, 0))
+					if textures:
+						# draw a copy of the base wall texture behind the overlay so the
+						# overlay appears on top in context of the tile
+						over.blit(textures[0], (0, 0))
+						# blit overlay centered, preserving alpha
+						ox = (base_tw - new_w) // 2
+						oy = (base_th - new_h) // 2
+						over.blit(scaled, (ox, oy))
+						# Pre-orient the overlay so its text reads correctly from the
+						# player's side (avoid per-column flipping during render which
+						# can produce inconsistent mirroring). Flip horizontally once.
+						try:
+							over = pygame.transform.flip(over, True, False)
+						except Exception:
+							pass
+					# avoid heavy additive boosts for image overlays (was causing
+					# large red blocks); keep subtle brightness changes via BLEND_MULT
+					if OVERLAY_BRIGHTNESS != 1.0:
+						try:
+							# multiply to brighten/darken overlay with a greyscale surface
+							mul = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
+							v = max(0, min(255, int(255 * OVERLAY_BRIGHTNESS)))
+							mul.fill((v, v, v, 255))
 							try:
-								over.blit(boost, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+								over.blit(mul, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 							except Exception:
-								over.blit(boost, (0, 0))
-					except Exception:
-						pass
+								over.blit(mul, (0, 0))
+						except Exception:
+							pass
 					graffiti_overlays[(gx, gy)] = over
 					placed = True
 					break
@@ -341,6 +385,8 @@ def main():
 
 	running = True
 	frame_count = 0
+	start_time = pygame.time.get_ticks()
+	is_official = False
 	while running:
 		dt = clock.tick(60) / 1000.0
 		for event in pygame.event.get():
@@ -589,16 +635,19 @@ def main():
 								right_x = -math.sin(pa)
 								right_y = math.cos(pa)
 								flip_h = False
+								# Previously we flipped when the dot was negative which produced
+								# mirrored text for the player's normal view; invert the sign so
+								# graffiti reads correctly from the player's perspective.
 								if side == 0:
 									# tangent (0,1) -> dot = right_y
-									if right_y < 0:
+									if right_y > 0:
 										flip_h = True
 								else:
 									# tangent (1,0) -> dot = right_x
-									if right_x < 0:
+									if right_x > 0:
 										flip_h = True
-								if flip_h:
-									ov_col = pygame.transform.flip(ov_col, True, False)
+								# no per-column flip here; overlay surfaces are pre-oriented at
+								# creation time so text reads correctly from the player's side.
 							except Exception:
 								pass
 							screen.blit(ov_col, (x, screen_h // 2 - proj_height // 2))
@@ -632,25 +681,68 @@ def main():
 
 		# check win condition: player reached exit cell
 		if int(px) == exit_x and int(py) == exit_y:
-			# draw a simple win overlay and wait for user to press a key or close the window
-			font = pygame.font.SysFont(None, 64 * SCALE)
-			text = font.render('You escaped!', True, (255, 255, 255))
-			tw, th = text.get_size()
-			screen.blit(text, (screen_w // 2 - tw // 2, screen_h // 2 - th // 2))
-			pygame.display.flip()
-			print('Player reached exit — waiting for keypress or window close')
-			waiting = True
-			while waiting:
+			# Show end-of-tutorial black result screen with elapsed time and a "Next Level" button.
+			elapsed_ms = pygame.time.get_ticks() - start_time
+			elapsed_s = elapsed_ms / 1000.0
+			mins = int(elapsed_s // 60)
+			secs = elapsed_s % 60
+			# build message
+			# English end-of-tutorial message (use English throughout the game)
+			msg = (
+				"You have understood the rules here. It will be drawn to sudden darkness..."
+				" Now keep your eyes open, no matter how difficult it gets."
+			)
+			# fonts
+			title_f = pygame.font.SysFont(None, 48 * SCALE)
+			msg_f = pygame.font.SysFont(None, 24 * SCALE)
+			time_f = pygame.font.SysFont(None, 36 * SCALE)
+			button_f = pygame.font.SysFont(None, 30 * SCALE)
+			in_end = True
+			while in_end:
 				for ev in pygame.event.get():
 					if ev.type == pygame.QUIT:
-						waiting = False
 						running = False
+						in_end = False
 						break
-					if ev.type == pygame.KEYDOWN:
-						waiting = False
-						running = False
-						break
-				pygame.time.wait(100)
+					if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+						mx, my = ev.pos
+						# check button click
+						if btn_rect.collidepoint(mx, my):
+							# start official level: copy current maze and reset player/time
+							maze = [row[:] for row in maze]
+							px, py = 1.5, 1.5
+							pa = 0.0
+							start_time = pygame.time.get_ticks()
+							frame_count = 0
+							is_official = True
+							in_end = False
+							break
+				# render end screen
+				screen.fill((0, 0, 0))
+				# time
+				time_surf = time_f.render(f"Completion time: {mins:d}:{secs:05.2f}", True, (255, 255, 255))
+				tw, th = time_surf.get_size()
+				screen.blit(time_surf, (screen_w // 2 - tw // 2, screen_h // 2 - 140 * SCALE))
+				# message (wrap if needed)
+				# naive split: split into lines of approx 40 chars
+				lines = []
+				line_len = 40
+				for i in range(0, len(msg), line_len):
+					lines.append(msg[i:i+line_len])
+				for i, ln in enumerate(lines):
+					ms = msg_f.render(ln, True, (220, 220, 220))
+					screen.blit(ms, (screen_w // 2 - ms.get_width() // 2, screen_h // 2 - 80 * SCALE + i * (28 * SCALE)))
+				# draw Next Level button
+				btn_w, btn_h = 240 * SCALE, 64 * SCALE
+				btn_x = screen_w // 2 - btn_w // 2
+				btn_y = int(screen_h // 2 + 40 * SCALE)
+				btn_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+				pygame.draw.rect(screen, (200, 200, 200), btn_rect)
+				pygame.draw.rect(screen, (255, 255, 255), btn_rect, 2)
+				bt = button_f.render('Next Level', True, (10, 10, 10))
+				screen.blit(bt, (btn_x + btn_w // 2 - bt.get_width() // 2, btn_y + btn_h // 2 - bt.get_height() // 2))
+				pygame.display.flip()
+				clock.tick(30)
 
 		frame_count += 1
 		pygame.display.flip()
