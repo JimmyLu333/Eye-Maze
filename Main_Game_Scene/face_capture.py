@@ -40,7 +40,7 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 # 检测与防抖参数
 CLOSED_EYE_FRAMES = 6        # 连续帧数判定为闭眼
 
-COOLDOWN_AFTER_EVENT = 2.0   # 触发后冷却（秒）以避免频繁触发
+COOLDOWN_AFTER_EVENT = 10.0   # 触发后冷却（秒）以避免频繁触发
 EAR_THRESHOLD = 0.20        # EAR 小于该值判定闭眼（可调）
 
 
@@ -79,28 +79,6 @@ def compute_ear(landmarks):
         return None
     return (left_ear + right_ear) / 2.0
 
-
-def compute_mar_and_brow(landmarks):
-    """Compute MAR and brow-raise boolean. Return (mar, brow_raise) or (None, False) on error."""
-    try:
-        top = landmarks[13]
-        bottom = landmarks[14]
-        left = landmarks[61]
-        right = landmarks[291]
-        vert = ((top.x - bottom.x)**2 + (top.y - bottom.y)**2)**0.5
-        horiz = ((left.x - right.x)**2 + (left.y - right.y)**2)**0.5
-        if horiz == 0:
-            return None, False
-        mar = vert / horiz
-        brow_raise = (landmarks[105].y - landmarks[10].y) < -0.03
-        return mar, brow_raise
-    except Exception:
-        return None, False
-
-
-
-
-# hand/wave detection removed for now (kept out of prototype per request)
 
 
 def frame_to_surface(frame, target_w, target_h):
@@ -171,7 +149,6 @@ while running:
     else:
         closed_eye_count = 0
 
-    # 手势检测已移除（仅保留闭眼触发）
 
     # 事件触发判断（需要连续若干帧并且尊重冷却）
     if closed_eye_count >= CLOSED_EYE_FRAMES and (now - last_enemy_time) > COOLDOWN_AFTER_EVENT:
@@ -200,10 +177,9 @@ while running:
     # 根据状态显示 UI
     y = 20
     if enemy_near:
-        text = font.render('👹 敌人靠近了！', True, (255, 0, 0))
+        text = font.render('The monster is approaching.', True, (255, 0, 0))
         screen.blit(text, (20, y)); y += 40
-
-    # 单场景原型（门/剧情提示已移除）
+    
 
     # debug 信息
     if debug:
