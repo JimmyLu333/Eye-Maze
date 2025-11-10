@@ -786,6 +786,11 @@ def main():
 						running = False
 						in_end = False
 						break
+					# allow ESC to quit from the end screen as a convenience
+					if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
+						running = False
+						in_end = False
+						break
 					if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
 						mx, my = ev.pos
 						# check button click
@@ -797,6 +802,12 @@ def main():
 							start_time = pygame.time.get_ticks()
 							frame_count = 0
 							is_official = True
+							# clear any graffiti overlays so the official level walls are
+							# entirely the animated GIF (no text overlays)
+							try:
+								graffiti_overlays.clear()
+							except Exception:
+								graffiti_overlays = {}
 							in_end = False
 							break
 				# render end screen
