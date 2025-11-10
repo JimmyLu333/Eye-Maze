@@ -26,7 +26,7 @@ face_mesh = mp_face.FaceMesh(static_image_mode=False, max_num_faces=1, refine_la
 pygame.init()
 SCREEN_W, SCREEN_H = 960, 720
 screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-pygame.display.set_caption('恐怖游戏 原型')
+pygame.display.set_caption('Eye Maze Prototype')
 font = pygame.font.SysFont(None, 36)
 clock = pygame.time.Clock()
 
@@ -179,7 +179,7 @@ while running:
     if enemy_near:
         text = font.render('The monster is approaching.', True, (255, 0, 0))
         screen.blit(text, (20, y)); y += 40
-    
+
 
     # debug 信息
     if debug:
