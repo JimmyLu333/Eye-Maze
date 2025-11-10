@@ -464,6 +464,14 @@ def main():
 			# (removed runtime F toggle; perspective floor is enabled by default)
 
 		keys = pygame.key.get_pressed()
+		# also support direct key-state quit in case KEYDOWN events are missed
+		try:
+			if keys[pygame.K_ESCAPE]:
+				running = False
+				continue
+		except Exception:
+			# if something odd happens with key state, fall back to event handling
+			pass
 		if keys[pygame.K_a]:
 			pa -= rot_speed * dt
 		if keys[pygame.K_d]:
