@@ -148,7 +148,7 @@ def main():
 	CEIL_DESATURATE = 0.8
 	# Overlay brightness: 1.0 = unchanged, >1.0 makes the overlay text/brighter
 	OVERLAY_BRIGHTNESS = 1.6
-	screen_w, screen_h = 1920 * SCALE, 1080 * SCALE
+	screen_w, screen_h = 800 * SCALE, 600 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
 	# small persistent ESC hint in top-left (rendered each frame)
@@ -157,125 +157,22 @@ def main():
 	except Exception:
 		esc_ui_font = pygame.font.SysFont(None, 18)
 
-	# load wall textures from Art_Design/textures/ (if any)
-	textures = []
+	# load textures via the textures module (extracted to Main_Game_Scene/textures.py)
+	try:
+		import Main_Game_Scene.textures as textures_mod
+	except Exception:
+		# fallback: try importing as a local module
+		import textures as textures_mod
+
 	tex_dir = os.path.join(os.path.dirname(__file__), 'textures')
-	floor_tex = None
-	ceil_tex = None
-	# candidate overlay image (user-uploaded PNG) - we'll pick the 2nd non-floor/ceil texture if present
-	overlay_candidate = None
-	# explicit image overlay (e.g. a user-supplied PNG that contains the text/graffiti)
-	# prefer filenames containing these keywords (case-insensitive) and keep them
-	# out of the wall texture list so they can be composited on top of the walls.
-	overlay_image = None
-	if os.path.isdir(tex_dir):
-		files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-		# prefer files that contain 'eyes' (exact plural) first, then 'eye', so
-		# an uploaded file named like 'eyes_pattern 2.png' will be preferred over
-		# 'eye_pattern.png' without requiring the user to remove the old file.
-		# sort key: 0 = contains 'eyes', 1 = contains 'eye' (but not 'eyes'), 2 = other
-		files.sort(key=lambda n: (0 if 'eyes' in n.lower() else (1 if 'eye' in n.lower() else 2), n.lower()))
-		wall_candidates = []
-		for fn in files:
-			try:
-				raw = pygame.image.load(os.path.join(tex_dir, fn))
-				lname = fn.lower()
-				# keep alpha for PNGs so overlays preserve transparency
-				if fn.lower().endswith('.png'):
-					surf = raw.convert_alpha()
-				else:
-					surf = raw.convert()
-
-				# Darken any 'eyes' texture by multiplying its RGB channels so the
-				# eyes pattern looks moodier. This preserves alpha.
-				try:
-					if 'eyes' in lname:
-						# factor: 0.0 (black) .. 1.0 (original). Adjust here as desired.
-						EYES_DARKEN = 0.35
-						v = max(0, min(255, int(255 * EYES_DARKEN)))
-						dark = pygame.Surface(surf.get_size(), pygame.SRCALPHA).convert_alpha()
-						dark.fill((v, v, v, 255))
-						try:
-							surf.blit(dark, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-						except Exception:
-							surf.blit(dark, (0, 0))
-				except Exception:
-					# non-fatal
-					pass
-
-				# Detect obvious overlay/text images by filename keywords and reserve
-				# them for graffiti overlays instead of making them wall textures.
-				if any(k in lname for k in ('trust', 'text', 'graff', 'overlay')):
-					# keep alpha so transparency is preserved
-					overlay_image = surf
-					continue
-
-				if 'floor' in lname:
-					floor_tex = surf
-				elif 'ceiling' in lname or 'ceil' in lname:
-					ceil_tex = surf
-				else:
-					wall_candidates.append((fn, surf))
-			except Exception as e:
-				print(f"Warning: failed loading texture {fn}: {e}")
-		# order wall candidates to prefer 'eyes' images first, then 'eye', then others
-		wall_candidates.sort(key=lambda t: (0 if 'eyes' in t[0].lower() else (1 if 'eye' in t[0].lower() else 2), t[0].lower()))
-		textures = [t[1] for t in wall_candidates]
-		# if user uploaded an extra PNG (not eye/floor/ceiling), pick the 2nd texture
-		# as a fallback overlay candidate. However prefer an explicit overlay_image
-		# (detected by filename) when available.
-		if overlay_image is None and len(textures) > 1:
-			overlay_candidate = textures[1]
-	if textures:
-		print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
-	# Attempt to find any animated GIF in the textures folder for the official level
-	official_anim_frames = None
-	official_anim_durations = None
-	# prefer GIF files (animated); pick the first .gif we find
-	gif_files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith('.gif')]
-	if gif_files:
-		gif_path = os.path.join(tex_dir, gif_files[0])
-		# try to use Pillow (PIL) to extract frames and durations
-		try:
-			from PIL import Image
-			im = Image.open(gif_path)
-			frames = []
-			durations = []
-			# limit frame size to reduce GPU/CPU load if very large
-			MAX_DIM = 512
-			for frame_index in range(0, getattr(im, 'n_frames', 1)):
-				im.seek(frame_index)
-				# convert to RGBA
-				fr = im.convert('RGBA')
-				# downscale if necessary
-				w, h = fr.size
-				if max(w, h) > MAX_DIM:
-					scale = MAX_DIM / float(max(w, h))
-					fr = fr.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-				# get duration in ms (fallback to 100ms)
-				d = fr.info.get('duration', im.info.get('duration', 100)) if hasattr(fr, 'info') else im.info.get('duration', 100)
-				# convert to pygame surface
-				mode = fr.mode
-				data = fr.tobytes()
-				ps = pygame.image.fromstring(data, fr.size, mode)
-				frames.append(ps.convert_alpha())
-				durations.append(d)
-			official_anim_frames = frames
-			official_anim_durations = durations
-		except Exception:
-			# Pillow not available or loading failed: fall back to loading as single Surface
-			try:
-				img = pygame.image.load(gif_path)
-				if gif_path.lower().endswith('.gif'):
-					# many pygame builds only load first frame; keep a single-frame list
-					official_anim_frames = [img.convert_alpha() if img.get_flags() & pygame.SRCALPHA else img.convert()]
-				official_anim_durations = [100]
-			except Exception as e:
-				print(f"Warning: failed to load animated GIF {gif_path}: {e}")
-	if floor_tex:
-		print('Loaded floor texture')
-	if ceil_tex:
-		print('Loaded ceiling texture')
+	tex_res = textures_mod.load_textures(tex_dir, overlay_brightness=OVERLAY_BRIGHTNESS)
+	textures = tex_res.get('textures', [])
+	floor_tex = tex_res.get('floor_tex')
+	ceil_tex = tex_res.get('ceil_tex')
+	overlay_candidate = tex_res.get('overlay_candidate')
+	overlay_image = tex_res.get('overlay_image')
+	official_anim_frames = tex_res.get('official_anim_frames')
+	official_anim_durations = tex_res.get('official_anim_durations')
 
 	# maze params
 	map_w, map_h = 21, 15  # odd sizes
@@ -313,114 +210,12 @@ def main():
 					continue
 				break
 	print(f"Exit set at: ({exit_x}, {exit_y}), start at: ({start_ix}, {start_iy})")
+	# build graffiti overlays (if any) using the textures helper
+	try:
+		graffiti_overlays = textures_mod.make_graffiti_overlays(textures, overlay_candidate, overlay_image, maze, start_ix, start_iy, overlay_brightness=OVERLAY_BRIGHTNESS, scale=SCALE)
+	except Exception:
+		graffiti_overlays = {}
 
-	# --- Graffiti / Overlay: place a short message or user-uploaded PNG near the spawn point on a nearby wall.
-	GRAFFITI_TEXT = "Trust your eyes... but don't rely on them."
-	graffiti_overlays = {}
-	# prefer placing on an adjacent wall tile; search NESW
-	adj_dirs = [(1,0),(-1,0),(0,1),(0,-1)]
-	placed = False
-	for dx, dy in adj_dirs:
-		gx, gy = start_ix + dx, start_iy + dy
-		if 0 <= gx < map_w and 0 <= gy < map_h and maze[gy][gx] == 1:
-			# if the user provided an explicit overlay image (overlay_image) prefer it
-			# so a file like 'Trust your sight...png' will be composited on top of
-			# the base wall texture instead of being used as a wall image.
-			chosen_overlay = overlay_image if overlay_image is not None else overlay_candidate
-			if chosen_overlay is not None:
-				try:
-					# scale overlay to fit the base wall texture while preserving aspect ratio
-					base_tw, base_th = (textures[0].get_size() if textures else (128, 128))
-					ow, oh = chosen_overlay.get_size()
-					# compute scale to fit inside base tile
-					if ow == 0 or oh == 0:
-						scale = 1.0
-					else:
-						scale = min(base_tw / ow, base_th / oh)
-					new_w = max(1, int(ow * scale))
-					new_h = max(1, int(oh * scale))
-					scaled = pygame.transform.smoothscale(chosen_overlay, (new_w, new_h))
-					# create a base surface of exact tile size and blit the wall texture
-					over = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
-					if textures:
-						# draw a copy of the base wall texture behind the overlay so the
-						# overlay appears on top in context of the tile
-						over.blit(textures[0], (0, 0))
-						# blit overlay centered, preserving alpha
-						ox = (base_tw - new_w) // 2
-						oy = (base_th - new_h) // 2
-						over.blit(scaled, (ox, oy))
-						# Pre-orient the overlay so its text reads correctly from the
-						# player's side (avoid per-column flipping during render which
-						# can produce inconsistent mirroring). Flip horizontally once.
-						try:
-							over = pygame.transform.flip(over, True, False)
-						except Exception:
-							pass
-					# avoid heavy additive boosts for image overlays (was causing
-					# large red blocks); keep subtle brightness changes via BLEND_MULT
-					if OVERLAY_BRIGHTNESS != 1.0:
-						try:
-							# multiply to brighten/darken overlay with a greyscale surface
-							mul = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
-							v = max(0, min(255, int(255 * OVERLAY_BRIGHTNESS)))
-							mul.fill((v, v, v, 255))
-							try:
-								over.blit(mul, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-							except Exception:
-								over.blit(mul, (0, 0))
-						except Exception:
-							pass
-					graffiti_overlays[(gx, gy)] = over
-					placed = True
-					break
-				except Exception:
-					# fallback to text-based graffiti if overlay fails
-					pass
-
-			# fallback: create an overlay surface sized to wall texture if available, else 128x128
-			if textures:
-				base_tw, base_th = textures[0].get_size()
-			else:
-				base_tw, base_th = 128, 128
-			over = pygame.Surface((base_tw, base_th), pygame.SRCALPHA)
-			# hand-written-ish font attempt
-			try:
-				f = pygame.font.SysFont('Segoe Script', max(12, base_th // 8))
-			except Exception:
-				f = pygame.font.SysFont(None, max(12, base_th // 8))
-			# render text lines and blit with slight rotation
-			lines = [GRAFFITI_TEXT]
-			yoff = base_th // 3
-			for i, line in enumerate(lines):
-				# use a more vivid red for graffiti text (saturated red)
-				base_color = (220, 30, 30)
-				try:
-					# optionally amplify slightly by OVERLAY_BRIGHTNESS but keep saturation
-					tc = (
-						min(255, int(base_color[0] * OVERLAY_BRIGHTNESS)),
-						min(255, int(base_color[1] * 0.9)),
-						min(255, int(base_color[2] * 0.9)),
-					)
-				except Exception:
-					tc = base_color
-				txt = f.render(line, True, tc)
-				# scale down a bit
-				tw, th = txt.get_size()
-				if tw > base_tw - 10:
-					scale = (base_tw - 10) / tw
-					txt = pygame.transform.smoothscale(txt, (int(tw * scale), int(th * scale)))
-				# small rotation
-				txt = pygame.transform.rotate(txt, random.uniform(-8, 8))
-				over.blit(txt, (max(2, base_tw//8 - tw//8), yoff + i * (th + 2)))
-			# slight smudge to mimic worn writing if helper exists
-			try:
-				_apply_blood_overlay(over, droplets=2, alpha=30, seed=None)
-			except Exception:
-				pass
-			graffiti_overlays[(gx, gy)] = over
-			placed = True
-			break
 	# if no adjacent wall, don't place graffiti (could extend to floor later)
 
 	move_speed = 3.0 * SCALE
