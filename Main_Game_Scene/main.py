@@ -2,8 +2,17 @@ import math
 import random
 import sys
 import os
+import argparse
 
 import pygame
+
+try:
+	from Main_Game_Scene.eye_capture import EyeCapture
+except Exception:
+	try:
+		from eye_capture import EyeCapture
+	except Exception:
+		EyeCapture = None
 
 
 def generate_maze(w, h):
@@ -129,6 +138,14 @@ def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
 
 def main():
 	pygame.init()
+	# CLI: allow optional no-camera and blink detection parameters
+	parser = argparse.ArgumentParser(add_help=False)
+	parser.add_argument('--no-camera', action='store_true', help='Run without opening a physical camera')
+	parser.add_argument('--ear-threshold', type=float, default=0.20, help='EAR threshold for closed eye')
+	parser.add_argument('--closed-frames', type=int, default=6, help='Consecutive closed frames to trigger')
+	parser.add_argument('--cooldown', type=float, default=10.0, help='Cooldown seconds between triggers')
+	parser.add_argument('--blackout-time', type=float, default=2.0, help='Seconds of blackout after trigger')
+	args, _ = parser.parse_known_args()
 	# SCALE increases internal pixel density; set to 1 (original), 2 (double), or 3 (triple)
 	SCALE = 1
 	# FLOOR_STEP controls floor/ceiling sampling horizontal resolution.
@@ -177,6 +194,52 @@ def main():
 	# maze params
 	map_w, map_h = 21, 15  # odd sizes
 	maze = generate_maze(map_w, map_h)
+
+	# camera / eye mech
+	try:
+		import cv2
+	except Exception:
+		cv2 = None
+
+	if not args.no_camera and cv2 is not None:
+		cap = cv2.VideoCapture(0)
+	else:
+		cap = None
+
+	if args.no_camera or EyeCapture is None:
+		class _DummyEye:
+			"""Enhanced DummyEye for keyboard-driven blink simulation and debug panel.
+			Attributes are intentionally public so the main loop can read/update them.
+			"""
+			def __init__(self):
+				self.blackout = False
+				self.enemy = False
+				self.ear = 0.32
+				self.consecutive_closed = 0
+				self.blackout_frames = 0
+				self.BLACKOUT_DURATION = max(1, int(args.blackout_time * 60))
+				self.show_instructions = True
+
+			def update(self, frame):
+				# simulate a small EAR oscillation so tests that read ear can observe changes
+				try:
+					import math, pygame as _pg
+					self.ear = 0.32 + 0.02 * math.sin(_pg.time.get_ticks() / 300.0)
+				except Exception:
+					self.ear = 0.32
+				# decrement blackout frame counter if active
+				if self.blackout_frames > 0:
+					self.blackout_frames -= 1
+					self.blackout = True
+				else:
+					self.blackout = False
+				return {"blackout": self.blackout, "enemy": self.enemy, "ear": self.ear, "consecutive_closed": self.consecutive_closed}
+
+		eye_mech = _DummyEye()
+		print('EyeCapture not available or --no-camera set; using DummyEyeCapture (keyboard simulation enabled)')
+	else:
+		eye_mech = EyeCapture(ear_threshold=args.ear_threshold, closed_frames=args.closed_frames, cooldown=args.cooldown, blackout_time=args.blackout_time)
+		print('Using EyeCapture for blink detection')
 
 	# player (initial position)
 	px, py = 1.5, 1.5
@@ -256,6 +319,21 @@ def main():
 				running = False
 			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 				running = False
+			# Debug-key handling for DummyEye (only when no camera / using Dummy)
+			elif event.type == pygame.KEYDOWN:
+				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
+					# E: 模拟眨眼触发黑屏
+					if event.key == pygame.K_e:
+						try:
+							eye_mech.blackout_frames = eye_mech.BLACKOUT_DURATION
+						except Exception:
+							eye_mech.blackout_frames = int(args.blackout_time * 60)
+					# R: 切换 enemy 标志
+					elif event.key == pygame.K_r:
+						eye_mech.enemy = not getattr(eye_mech, 'enemy', False)
+					# I: 切换说明显示
+					elif event.key == pygame.K_i:
+						eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
 			# (removed runtime F toggle; perspective floor is enabled by default)
 
 		keys = pygame.key.get_pressed()
@@ -281,6 +359,66 @@ def main():
 			nx, ny = px - dx, py - dy
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
+
+		# camera frame + eye state
+		if cap is not None:
+			ret, frame = cap.read()
+			if not ret:
+				frame = None
+		else:
+			try:
+				import numpy as np
+				frame = np.zeros((480, 640, 3), dtype=np.uint8)
+			except Exception:
+				frame = None
+
+		# obtain eye state (blackout/enemy/ear)
+		try:
+			state = eye_mech.update(frame)
+		except Exception:
+			state = {"blackout": False, "enemy": False, "ear": None}
+
+		# if blackout triggered, show black screen this frame and skip heavy rendering
+		if state.get('blackout'):
+			screen.fill((0, 0, 0))
+			pygame.display.flip()
+			frame_count += 1
+			continue
+
+		# If using DummyEye, render debug panel on the right and show simulated data
+		# panel will be 220px wide aligned to the right edge of the screen
+		if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
+			# ensure some attributes exist
+			blackout_frames = getattr(eye_mech, 'blackout_frames', 0)
+			consec = getattr(eye_mech, 'consecutive_closed', 0)
+			ear_val = getattr(eye_mech, 'ear', None)
+			enemy_flag = getattr(eye_mech, 'enemy', False)
+			show_inst = getattr(eye_mech, 'show_instructions', True)
+			# draw right panel
+			panel_w = 220
+			panel_x = screen_w - panel_w
+			pygame.draw.rect(screen, (18, 18, 18), (panel_x, 0, panel_w, screen_h))
+			try:
+				# small helper for text
+				def _draw_text(surf, text, x, y, size=20, col=(255,255,255)):
+					f = pygame.font.SysFont(None, size)
+					surf.blit(f.render(text, True, col), (x, y))
+				_y = 12
+				_draw_text(screen, 'Debug Blink 状态', panel_x + 12, _y, 22)
+				_y += 34
+				_draw_text(screen, f'BLACKOUT: {bool(blackout_frames>0)}', panel_x + 12, _y)
+				_y += 24
+				_draw_text(screen, f'blackout_frames: {int(blackout_frames)}', panel_x + 12, _y)
+				_y += 24
+				_draw_text(screen, f'EAR (sim): {ear_val:.3f}' if ear_val is not None else 'EAR: N/A', panel_x + 12, _y)
+				_y += 24
+				_draw_text(screen, f'Enemy flag: {enemy_flag}', panel_x + 12, _y)
+				_y += 24
+				_draw_text(screen, f'Consec closed: {consec}', panel_x + 12, _y)
+				_y += 28
+				_draw_text(screen, 'Keys: E=blink  R=enemy  I=tips', panel_x + 12, _y, 16, (200,200,200))
+			except Exception:
+				pass
 
 		# render: floor & ceiling selection
 		# If perspective floor is disabled (default), use fast tiling which is responsive.
@@ -686,3 +824,19 @@ def main():
 
 if __name__ == '__main__':
 	main()
+
+
+# -------------------------
+# Debug helpers (placed at file bottom)
+# These helpers are used by the DummyEye simulation and the in-game
+# right-side debug panel. They are purposely appended at the end of
+# the file so maintainers can quickly find and edit simulation helpers.
+def _draw_text(surface, text, x, y, size=20, col=(255, 255, 255)):
+	try:
+		f = pygame.font.SysFont(None, size)
+		surface.blit(f.render(text, True, col), (x, y))
+	except Exception:
+		# last-resort: ignore render failures
+		pass
+
+# End of file

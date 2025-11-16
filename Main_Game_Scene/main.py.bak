@@ -1,0 +1,162 @@
+import math
+import random
+import sys
+import os
+
+import pygame
+
+
+def generate_maze(w, h):
+	# simple randomized DFS maze (odd dimensions recommended)
+	maze = [[1 for _ in range(w)] for _ in range(h)]
+
+	def carve(x, y):
+		dirs = [(2, 0), (-2, 0), (0, 2), (0, -2)]
+		random.shuffle(dirs)
+		for dx, dy in dirs:
+			nx, ny = x + dx, y + dy
+			if 0 < nx < w and 0 < ny < h and maze[ny][nx] == 1:
+				maze[ny - dy // 2][nx - dx // 2] = 0
+				maze[ny][nx] = 0
+				carve(nx, ny)
+
+	# start at random odd cell
+	sx = random.randrange(1, w, 2)
+	sy = random.randrange(1, h, 2)
+	maze[sy][sx] = 0
+	carve(sx, sy)
+	return maze
+
+
+def cast_ray(px, py, angle, maze, max_depth=100):
+	"""
+	DDA-based raycast. Returns:
+	  depth, hit_bool, hit_x, hit_y, map_x, map_y, side
+	where side==0 indicates a vertical wall hit (x-side), side==1 horizontal (y-side).
+	"""
+	rayDirX = math.cos(angle)
+	rayDirY = math.sin(angle)
+
+	mapX = int(px)
+	mapY = int(py)
+
+	# length of ray from one x or y side to next x or y side
+	deltaDistX = abs(1.0 / rayDirX) if rayDirX != 0 else 1e30
+	deltaDistY = abs(1.0 / rayDirY) if rayDirY != 0 else 1e30
+
+	# step and initial sideDist
+	if rayDirX < 0:
+		stepX = -1
+		sideDistX = (px - mapX) * deltaDistX
+	else:
+		stepX = 1
+		sideDistX = (mapX + 1.0 - px) * deltaDistX
+	if rayDirY < 0:
+		stepY = -1
+		sideDistY = (py - mapY) * deltaDistY
+	else:
+		stepY = 1
+		sideDistY = (mapY + 1.0 - py) * deltaDistY
+
+	hit = False
+	side = 0
+	max_iter = int(max_depth * max(deltaDistX, deltaDistY)) + 5
+	iter_count = 0
+	while not hit and iter_count < max_iter:
+		# jump to next map square, OR in x-direction, OR in y-direction
+		if sideDistX < sideDistY:
+			sideDistX += deltaDistX
+			mapX += stepX
+			side = 0
+		else:
+			sideDistY += deltaDistY
+			mapY += stepY
+			side = 1
+		# bounds check
+		if mapY < 0 or mapY >= len(maze) or mapX < 0 or mapX >= len(maze[0]):
+			# went out of map
+			break
+		if maze[mapY][mapX] == 1:
+			hit = True
+			break
+		iter_count += 1
+
+	if not hit:
+		# no wall hit within range
+		# approximate hit at max depth
+		hit_x = px + rayDirX * max_depth
+		hit_y = py + rayDirY * max_depth
+		return max_depth, False, hit_x, hit_y, mapX, mapY, side
+
+	# calculate distance to the point of impact (perpendicular distance to avoid fish-eye)
+	if side == 0:
+		perpWallDist = (mapX - px + (1 - stepX) / 2) / (rayDirX if rayDirX != 0 else 1e-6)
+	else:
+		perpWallDist = (mapY - py + (1 - stepY) / 2) / (rayDirY if rayDirY != 0 else 1e-6)
+
+	hit_x = px + rayDirX * perpWallDist
+	hit_y = py + rayDirY * perpWallDist
+
+	return perpWallDist, True, hit_x, hit_y, mapX, mapY, side
+
+
+def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
+	"""Apply a subtle procedural blood/smudge overlay to the given surface.
+	This is a lightweight fallback so code paths that call this helper won't fail
+	if a more advanced generator isn't present.
+	"""
+	try:
+		import random as _rnd
+		if seed is not None:
+			_rnd.seed(seed)
+		w, h = surf.get_size()
+		overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+		for i in range(max(1, droplets)):
+			rx = _rnd.randint(0, max(0, w - 1))
+			ry = _rnd.randint(0, max(0, h - 1))
+			r = _rnd.randint(3, max(4, min(w, h) // 8))
+			col = (120, 0, 0, int(alpha))
+			pygame.draw.circle(overlay, col, (rx, ry), r)
+		# blend the overlay on top using additive alpha so it's subtle
+		try:
+			surf.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+		except Exception:
+			surf.blit(overlay, (0, 0))
+	except Exception:
+		# non-fatal: if anything fails, silently continue
+		return
+
+
+def main():
+	pygame.init()
+	# SCALE increases internal pixel density; set to 1 (original), 2 (double), or 3 (triple)
+	SCALE = 1
+	# FLOOR_STEP controls floor/ceiling sampling horizontal resolution.
+	# Increase to 2-6 to reduce cost (bigger means faster but blockier).
+	FLOOR_STEP = 4
+	# By default use perspective (world-anchored) floor/ceiling rendering but render at reduced
+	# vertical resolution and scale up for speed. REDUCE_FACTOR=2 renders at half height.
+	USE_PERSPECTIVE_FLOOR = True
+	REDUCE_FACTOR = 2
+	# Visual tone adjustments to make floor/ceiling darker/more gloomy
+	# 0.0..1.0 scale where 1.0 = original brightness
+	FLOOR_BRIGHTNESS = 0.45
+	CEIL_BRIGHTNESS = 0.15
+	# DESATURATE: 0.0 = keep colors, 1.0 = fully grayscale
+	DESATURATE = 0.35
+	# Ceiling can have its own stronger desaturation factor
+	CEIL_DESATURATE = 0.8
+	# Overlay brightness: 1.0 = unchanged, >1.0 makes the overlay text/brighter
+	OVERLAY_BRIGHTNESS = 1.6
+	screen_w, screen_h = 800 * SCALE, 600 * SCALE
+	screen = pygame.display.set_mode((screen_w, screen_h))
+	clock = pygame.time.Clock()
+	# small persistent ESC hint in top-left (rendered each frame)
+	try:
+		esc_ui_font = pygame.font.SysFont(None, 18 * SCALE)
+	except Exception:
+		esc_ui_font = pygame.font.SysFont(None, 18)
+
+
+if __name__ == '__main__':
+	main()
