@@ -130,7 +130,7 @@ def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
 def main():
 	pygame.init()
 	# SCALE increases internal pixel density; set to 1 (original), 2 (double), or 3 (triple)
-	SCALE = 2
+	SCALE = 1
 	# FLOOR_STEP controls floor/ceiling sampling horizontal resolution.
 	# Increase to 2-6 to reduce cost (bigger means faster but blockier).
 	FLOOR_STEP = 4
@@ -148,7 +148,7 @@ def main():
 	CEIL_DESATURATE = 0.8
 	# Overlay brightness: 1.0 = unchanged, >1.0 makes the overlay text/brighter
 	OVERLAY_BRIGHTNESS = 1.6
-	screen_w, screen_h = 800 * SCALE, 480 * SCALE
+	screen_w, screen_h = 1920 * SCALE, 1080 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	clock = pygame.time.Clock()
 	# small persistent ESC hint in top-left (rendered each frame)
