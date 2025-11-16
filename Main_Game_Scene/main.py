@@ -328,12 +328,19 @@ def main():
 							eye_mech.blackout_frames = eye_mech.BLACKOUT_DURATION
 						except Exception:
 							eye_mech.blackout_frames = int(args.blackout_time * 60)
+						# debug trace for key press
+						eye_mech.last_action = f'E pressed @ {pygame.time.get_ticks()}'
+						print('[DEBUG] Simulated blink: blackout_frames set to', eye_mech.blackout_frames)
 					# R: 切换 enemy 标志
 					elif event.key == pygame.K_r:
 						eye_mech.enemy = not getattr(eye_mech, 'enemy', False)
+						eye_mech.last_action = f'R pressed @ {pygame.time.get_ticks()}'
+						print('[DEBUG] Enemy toggled ->', eye_mech.enemy)
 					# I: 切换说明显示
 					elif event.key == pygame.K_i:
 						eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
+						eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
+						print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
 			# (removed runtime F toggle; perspective floor is enabled by default)
 
 		keys = pygame.key.get_pressed()
@@ -380,6 +387,13 @@ def main():
 
 		# if blackout triggered, show black screen this frame and skip heavy rendering
 		if state.get('blackout'):
+			# Announce blackout once when it starts (for debug visibility)
+			try:
+				if not getattr(eye_mech, '_debug_blackout_announced', False):
+					print('[DEBUG] BLACKOUT started')
+					eye_mech._debug_blackout_announced = True
+			except Exception:
+				pass
 			screen.fill((0, 0, 0))
 			pygame.display.flip()
 			frame_count += 1
@@ -417,6 +431,11 @@ def main():
 				_draw_text(screen, f'Consec closed: {consec}', panel_x + 12, _y)
 				_y += 28
 				_draw_text(screen, 'Keys: E=blink  R=enemy  I=tips', panel_x + 12, _y, 16, (200,200,200))
+				_y += 24
+				# last action display for debugging
+				last_act = getattr(eye_mech, 'last_action', '')
+				if last_act:
+					_draw_text(screen, f'Last: {last_act}', panel_x + 12, _y, 14, (180,180,255))
 			except Exception:
 				pass
 
