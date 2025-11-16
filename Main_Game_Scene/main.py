@@ -2,7 +2,15 @@ import math
 import random
 import cv2
 import pygame
-from eye_capture import EyeCapture   # 导入眼睛检测机制
+import argparse
+import time
+import numpy as np
+
+# try to import the project's EyeCapture; if it's unavailable fall back to a dummy
+try:
+    from eye_capture import EyeCapture   # 导入眼睛检测机制
+except Exception:
+    EyeCapture = None
 
 
 def generate_maze(w, h):
@@ -43,15 +51,60 @@ def cast_ray(px, py, angle, maze, max_depth=20, step=0.01):
     return max_depth, False
 
 
+class DummyEyeCapture:
+    """A minimal replacement for EyeCapture used when no camera is available.
+    It exposes the same `update(frame)` method and returns a state dict with
+    keys 'blackout' and 'enemy'. Use keyboard B/E to toggle those states when
+    running without a camera, or enable --auto-debug to toggle automatically.
+    """
+    def __init__(self):
+        self.blackout = False
+        self.enemy = False
+
+    def update(self, frame):
+        # frame is ignored; return current simulated state
+        return {"blackout": self.blackout, "enemy": self.enemy}
+
+
+
+"""
+Debug helpers (automatic/manual toggles) were previously implemented here
+for development testing (auto-toggling enemy/blackout and manual key
+toggles). Those helpers have been commented out to keep runtime clean. The
+game still supports running without a camera via `--no-camera`.
+
+def _debug_auto_toggle(dummy: DummyEyeCapture, frame_count: int):
+    # simple automatic toggles for debugging: enemy toggles faster than blackout
+    if frame_count % 120 == 0:
+        dummy.toggle_enemy()
+    if frame_count % 360 == 0:
+        dummy.toggle_blackout()
+"""
+
+
 def main():
     pygame.init()
+    # CLI: allow running without a camera and an automatic debug mode
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--no-camera', action='store_true', help='Run without opening a physical camera')
+    args, _ = parser.parse_known_args()
+
     screen_w, screen_h = 800, 480
     screen = pygame.display.set_mode((screen_w, screen_h))
     clock = pygame.time.Clock()
 
-    # Initialize eye capture
-    cap = cv2.VideoCapture(0)
-    eye_mech = EyeCapture()
+    # Initialize eye capture (or dummy when requested / not available)
+    if not args.no_camera:
+        cap = cv2.VideoCapture(0)
+    else:
+        cap = None
+
+    if args.no_camera or EyeCapture is None:
+        eye_mech = DummyEyeCapture()
+        print('Running without camera; debug toggles are disabled')
+    else:
+        eye_mech = EyeCapture()
+
     font = pygame.font.SysFont(None, 36)   # 用于显示提示文字
 
     # maze params
@@ -72,6 +125,7 @@ def main():
     wall_height = 120
 
     running = True
+    frame_count = 0
     while running:
         dt = clock.tick(60) / 1000.0
         for event in pygame.event.get():
@@ -79,6 +133,7 @@ def main():
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+            # debug key handlers removed/commented out
 
         keys = pygame.key.get_pressed()
         if keys[pygame.K_a]:
@@ -97,11 +152,19 @@ def main():
                 px, py = nx, ny
 
         # 摄像头帧 + 眼睛检测
-        ret, frame = cap.read()
-        if not ret:
-            print("The camera failed to read frame.")
-            break
+        if cap is not None:
+            ret, frame = cap.read()
+            if not ret:
+                print("The camera failed to read frame.")
+                break
+        else:
+            # synthesize a dummy frame (size doesn't matter for DummyEyeCapture)
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            ret = True
+
         state = eye_mech.update(frame)
+
+        # debug auto-toggles and blink timer have been disabled
 
         # render
         if state["blackout"]:
@@ -139,8 +202,10 @@ def main():
             screen.blit(text, (20,20))
 
         pygame.display.flip()
+        frame_count += 1
 
-    cap.release()
+    if cap is not None:
+        cap.release()
     pygame.quit()
 
 
