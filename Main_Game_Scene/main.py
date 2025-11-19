@@ -14,27 +14,12 @@ except Exception:
 	except Exception:
 		EyeCapture = None
 
-
-def generate_maze(w, h):
-	# simple randomized DFS maze (odd dimensions recommended)
-	maze = [[1 for _ in range(w)] for _ in range(h)]
-
-	def carve(x, y):
-		dirs = [(2, 0), (-2, 0), (0, 2), (0, -2)]
-		random.shuffle(dirs)
-		for dx, dy in dirs:
-			nx, ny = x + dx, y + dy
-			if 0 < nx < w and 0 < ny < h and maze[ny][nx] == 1:
-				maze[ny - dy // 2][nx - dx // 2] = 0
-				maze[ny][nx] = 0
-				carve(nx, ny)
-
-	# start at random odd cell
-	sx = random.randrange(1, w, 2)
-	sy = random.randrange(1, h, 2)
-	maze[sy][sx] = 0
-	carve(sx, sy)
-	return maze
+# maze generation and minimap helper moved to separate module for clarity
+try:
+	from Main_Game_Scene.maze import generate_maze, draw_minimap
+except Exception:
+	# fallback to relative import if package import fails
+	from maze import generate_maze, draw_minimap
 
 
 def cast_ray(px, py, angle, maze, max_depth=100):
@@ -245,6 +230,10 @@ def main():
 	px, py = 1.5, 1.5
 	pa = 0.0
 
+	# minimap state: track visited integer cells (minimap shown in top-left)
+	visited_cells = set()
+	visited_cells.add((int(px), int(py)))
+
 	# determine an exit cell: pick the empty cell farthest from the player start
 	start_ix, start_iy = int(px), int(py)
 	exit_x, exit_y = start_ix, start_iy
@@ -319,6 +308,7 @@ def main():
 				running = False
 			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 				running = False
+
 			# Debug-key handling for DummyEye (only when no camera / using Dummy)
 			elif event.type == pygame.KEYDOWN:
 				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
@@ -366,6 +356,14 @@ def main():
 			nx, ny = px - dx, py - dy
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
+
+		# record visited cells when player enters a new integer cell
+		try:
+			cur_cell = (int(px), int(py))
+			if cur_cell not in visited_cells:
+				visited_cells.add(cur_cell)
+		except Exception:
+			pass
 
 		# camera frame + eye state
 		if cap is not None:
@@ -709,22 +707,9 @@ def main():
 				col = (color_val, color_val, color_val)
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
-		# mini-map
-		mm_scale = 8 * SCALE
-		# mini-map rectangle (top-left) so we can position HUD items relative to it
-		mm_w = map_w * mm_scale
-		mm_h = map_h * mm_scale
-		mm_rect = pygame.Rect(0, 0, mm_w, mm_h)
-		for y in range(map_h):
-			for x in range(map_w):
-				rect = pygame.Rect(x * mm_scale, y * mm_scale, mm_scale - 1, mm_scale - 1)
-				color = (200, 200, 200) if maze[y][x] == 1 else (30, 30, 30)
-				pygame.draw.rect(screen, color, rect)
-		# draw exit on mini-map (green)
-		ex_rect = pygame.Rect(exit_x * mm_scale, exit_y * mm_scale, mm_scale - 1, mm_scale - 1)
-		pygame.draw.rect(screen, (0, 200, 0), ex_rect)
-		# player on mini-map
-		pygame.draw.circle(screen, (255, 0, 0), (int(px * mm_scale), int(py * mm_scale)), max(2, 3 * SCALE))
+		# mini-map (moved to maze.draw_minimap) — always draw in top-left
+		# reveal walls only locally around visited cells (radius=1)
+		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
 		# If we're still in the tutorial (not official), show an objective UI centered beneath the mini-map
 		if not is_official:
 			try:
