@@ -256,8 +256,15 @@ def main():
 	sound_manager = None
 	if SoundManager:
 		try:
-			sound_manager = SoundManager()
+			sound_manager = SoundManager(
+				music_file='background_music.mp3',
+				music_volume=0.1
+			)
 			print("✅ 声音系统初始化成功")
+			
+			# 播放背景音乐（无限循环，2秒淡入）
+			sound_manager.play_music(loops=-1, fade_ms=2000)
+			
 		except Exception as e:
 			print(f"⚠️ 声音系统初始化失败: {e}")
 
