@@ -7,6 +7,14 @@ import argparse
 import pygame
 
 # 导入声音管理器
+# optional local light system
+try:
+	from Main_Game_Scene.light import LightSystem
+except Exception:
+	try:
+		from light import LightSystem
+	except Exception:
+		LightSystem = None
 try:
 	from Music_And_SFX.Music import SoundManager
 except ImportError:
@@ -746,6 +754,13 @@ def main():
 		# mini-map (moved to maze.draw_minimap) — always draw in top-left
 		# reveal walls only locally around visited cells (radius=1)
 		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
+		# copy the minimap area so we can re-draw it after any global overlays (keeps it unaffected)
+		mm_surf = None
+		try:
+			# mm_rect may be a pygame.Rect
+			mm_surf = screen.subsurface(mm_rect).copy()
+		except Exception:
+			mm_surf = None
 		# If we're still in the tutorial (not official), show an objective UI centered beneath the mini-map
 		if not is_official:
 			try:
@@ -855,6 +870,45 @@ def main():
 			bg.blit(txt, (pad, pad))
 			# position top-right with small margin
 			screen.blit(bg, (screen_w - bg_w - 8 * SCALE, 8 * SCALE))
+		except Exception:
+			pass
+		# apply global light/darkness overlay if available and then restore UI elements on top
+		try:
+			# create once and reuse
+			if 'light_system' not in locals() and LightSystem is not None:
+				light_system = LightSystem(darkness=0.8, vignette=True, vignette_strength=0.55)
+			if LightSystem is not None and light_system is not None:
+				light_system.apply(screen)
+			# restore minimap on top so it's not darkened by the overlay
+			if mm_surf is not None:
+				try:
+					screen.blit(mm_surf, mm_rect.topleft)
+				except Exception:
+					pass
+			# redraw objective UI (if present) so it remains readable
+			if not is_official:
+				try:
+					obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
+					txt_obj = obj_font.render('Objective: Exit the maze', True, (255, 255, 255))
+					obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
+					obj_y = mm_rect.bottom + int(6 * SCALE)
+					if obj_y < 4 * SCALE:
+						obj_y = 4 * SCALE
+					screen.blit(txt_obj, (obj_x, obj_y))
+				except Exception:
+					pass
+			# ESC hint (re-draw on top)
+			try:
+				txt2 = esc_ui_font.render('× ESC', True, (255, 255, 255))
+				pad2 = 6 * SCALE
+				bg_w2 = txt2.get_width() + pad2 * 2
+				bg_h2 = txt2.get_height() + pad2 * 2
+				bg2 = pygame.Surface((bg_w2, bg_h2), pygame.SRCALPHA)
+				bg2.fill((0, 0, 0, 160))
+				bg2.blit(txt2, (pad2, pad2))
+				screen.blit(bg2, (screen_w - bg_w2 - 8 * SCALE, 8 * SCALE))
+			except Exception:
+				pass
 		except Exception:
 			pass
 		pygame.display.flip()
