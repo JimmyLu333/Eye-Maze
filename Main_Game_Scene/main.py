@@ -6,6 +6,17 @@ import argparse
 
 import pygame
 
+# 导入声音管理器
+try:
+	from Music_And_SFX.Music import SoundManager
+except ImportError:
+	try:
+		sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+		from Music_And_SFX.Music import SoundManager
+	except:
+		print("⚠️ 警告：无法导入SoundManager，音效功能将不可用")
+		SoundManager = None
+
 try:
 	from Main_Game_Scene.eye_capture import EyeCapture
 except Exception:
@@ -226,6 +237,22 @@ def main():
 		eye_mech = EyeCapture(ear_threshold=args.ear_threshold, closed_frames=args.closed_frames, cooldown=args.cooldown, blackout_time=args.blackout_time)
 		print('Using EyeCapture for blink detection')
 
+	# 初始化声音管理器
+	sound_manager = None
+	if SoundManager:
+		try:
+			sound_manager = SoundManager(
+				music_file='background_music.mp3',
+				music_volume=0.1
+			)
+			print("✅ 声音系统初始化成功")
+			
+			# 播放背景音乐（无限循环，2秒淡入）
+			sound_manager.play_music(loops=-1, fade_ms=2000)
+			
+		except Exception as e:
+			print(f"⚠️ 声音系统初始化失败: {e}")
+
 	# player (initial position)
 	px, py = 1.5, 1.5
 	pa = 0.0
@@ -346,16 +373,25 @@ def main():
 			pa -= rot_speed * dt
 		if keys[pygame.K_d]:
 			pa += rot_speed * dt
+		
+		# 检测玩家移动
+		is_moving = False
 		dx = math.cos(pa) * move_speed * dt
 		dy = math.sin(pa) * move_speed * dt
 		if keys[pygame.K_w]:
 			nx, ny = px + dx, py + dy
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
+				is_moving = True
 		if keys[pygame.K_s]:
 			nx, ny = px - dx, py - dy
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
+				is_moving = True
+
+		# 更新脚步声
+		if sound_manager:
+			sound_manager.update_footsteps(is_moving, dt)
 
 		# record visited cells when player enters a new integer cell
 		try:
