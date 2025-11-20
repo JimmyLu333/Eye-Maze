@@ -6,6 +6,25 @@ import argparse
 
 import pygame
 
+# 导入声音管理器
+# optional local light system
+try:
+	from Main_Game_Scene.light import LightSystem
+except Exception:
+	try:
+		from light import LightSystem
+	except Exception:
+		LightSystem = None
+try:
+	from Music_And_SFX.Music import SoundManager
+except ImportError:
+	try:
+		sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+		from Music_And_SFX.Music import SoundManager
+	except:
+		print("⚠️ 警告：无法导入SoundManager，音效功能将不可用")
+		SoundManager = None
+
 try:
 	from Main_Game_Scene.eye_capture import EyeCapture
 except Exception:
@@ -14,27 +33,12 @@ except Exception:
 	except Exception:
 		EyeCapture = None
 
-
-def generate_maze(w, h):
-	# simple randomized DFS maze (odd dimensions recommended)
-	maze = [[1 for _ in range(w)] for _ in range(h)]
-
-	def carve(x, y):
-		dirs = [(2, 0), (-2, 0), (0, 2), (0, -2)]
-		random.shuffle(dirs)
-		for dx, dy in dirs:
-			nx, ny = x + dx, y + dy
-			if 0 < nx < w and 0 < ny < h and maze[ny][nx] == 1:
-				maze[ny - dy // 2][nx - dx // 2] = 0
-				maze[ny][nx] = 0
-				carve(nx, ny)
-
-	# start at random odd cell
-	sx = random.randrange(1, w, 2)
-	sy = random.randrange(1, h, 2)
-	maze[sy][sx] = 0
-	carve(sx, sy)
-	return maze
+# maze generation and minimap helper moved to separate module for clarity
+try:
+	from Main_Game_Scene.maze import generate_maze, draw_minimap
+except Exception:
+	# fallback to relative import if package import fails
+	from maze import generate_maze, draw_minimap
 
 
 def cast_ray(px, py, angle, maze, max_depth=100):
@@ -241,9 +245,29 @@ def main():
 		eye_mech = EyeCapture(ear_threshold=args.ear_threshold, closed_frames=args.closed_frames, cooldown=args.cooldown, blackout_time=args.blackout_time)
 		print('Using EyeCapture for blink detection')
 
+	# 初始化声音管理器
+	sound_manager = None
+	if SoundManager:
+		try:
+			sound_manager = SoundManager(
+				music_file='background_music.mp3',
+				music_volume=0.1
+			)
+			print("✅ 声音系统初始化成功")
+			
+			# 播放背景音乐（无限循环，2秒淡入）
+			sound_manager.play_music(loops=-1, fade_ms=2000)
+			
+		except Exception as e:
+			print(f"⚠️ 声音系统初始化失败: {e}")
+
 	# player (initial position)
 	px, py = 1.5, 1.5
 	pa = 0.0
+
+	# minimap state: track visited integer cells (minimap shown in top-left)
+	visited_cells = set()
+	visited_cells.add((int(px), int(py)))
 
 	# determine an exit cell: pick the empty cell farthest from the player start
 	start_ix, start_iy = int(px), int(py)
@@ -319,6 +343,7 @@ def main():
 				running = False
 			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 				running = False
+
 			# Debug-key handling for DummyEye (only when no camera / using Dummy)
 			elif event.type == pygame.KEYDOWN:
 				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
@@ -356,16 +381,33 @@ def main():
 			pa -= rot_speed * dt
 		if keys[pygame.K_d]:
 			pa += rot_speed * dt
+		
+		# 检测玩家移动
+		is_moving = False
 		dx = math.cos(pa) * move_speed * dt
 		dy = math.sin(pa) * move_speed * dt
 		if keys[pygame.K_w]:
 			nx, ny = px + dx, py + dy
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
+				is_moving = True
 		if keys[pygame.K_s]:
 			nx, ny = px - dx, py - dy
 			if maze[int(ny)][int(nx)] == 0:
 				px, py = nx, ny
+				is_moving = True
+
+		# 更新脚步声
+		if sound_manager:
+			sound_manager.update_footsteps(is_moving, dt)
+
+		# record visited cells when player enters a new integer cell
+		try:
+			cur_cell = (int(px), int(py))
+			if cur_cell not in visited_cells:
+				visited_cells.add(cur_cell)
+		except Exception:
+			pass
 
 		# camera frame + eye state
 		if cap is not None:
@@ -709,22 +751,16 @@ def main():
 				col = (color_val, color_val, color_val)
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
-		# mini-map
-		mm_scale = 8 * SCALE
-		# mini-map rectangle (top-left) so we can position HUD items relative to it
-		mm_w = map_w * mm_scale
-		mm_h = map_h * mm_scale
-		mm_rect = pygame.Rect(0, 0, mm_w, mm_h)
-		for y in range(map_h):
-			for x in range(map_w):
-				rect = pygame.Rect(x * mm_scale, y * mm_scale, mm_scale - 1, mm_scale - 1)
-				color = (200, 200, 200) if maze[y][x] == 1 else (30, 30, 30)
-				pygame.draw.rect(screen, color, rect)
-		# draw exit on mini-map (green)
-		ex_rect = pygame.Rect(exit_x * mm_scale, exit_y * mm_scale, mm_scale - 1, mm_scale - 1)
-		pygame.draw.rect(screen, (0, 200, 0), ex_rect)
-		# player on mini-map
-		pygame.draw.circle(screen, (255, 0, 0), (int(px * mm_scale), int(py * mm_scale)), max(2, 3 * SCALE))
+		# mini-map (moved to maze.draw_minimap) — always draw in top-left
+		# reveal walls only locally around visited cells (radius=1)
+		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
+		# copy the minimap area so we can re-draw it after any global overlays (keeps it unaffected)
+		mm_surf = None
+		try:
+			# mm_rect may be a pygame.Rect
+			mm_surf = screen.subsurface(mm_rect).copy()
+		except Exception:
+			mm_surf = None
 		# If we're still in the tutorial (not official), show an objective UI centered beneath the mini-map
 		if not is_official:
 			try:
@@ -834,6 +870,45 @@ def main():
 			bg.blit(txt, (pad, pad))
 			# position top-right with small margin
 			screen.blit(bg, (screen_w - bg_w - 8 * SCALE, 8 * SCALE))
+		except Exception:
+			pass
+		# apply global light/darkness overlay if available and then restore UI elements on top
+		try:
+			# create once and reuse
+			if 'light_system' not in locals() and LightSystem is not None:
+				light_system = LightSystem(darkness=0.8, vignette=True, vignette_strength=0.55)
+			if LightSystem is not None and light_system is not None:
+				light_system.apply(screen)
+			# restore minimap on top so it's not darkened by the overlay
+			if mm_surf is not None:
+				try:
+					screen.blit(mm_surf, mm_rect.topleft)
+				except Exception:
+					pass
+			# redraw objective UI (if present) so it remains readable
+			if not is_official:
+				try:
+					obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
+					txt_obj = obj_font.render('Objective: Exit the maze', True, (255, 255, 255))
+					obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
+					obj_y = mm_rect.bottom + int(6 * SCALE)
+					if obj_y < 4 * SCALE:
+						obj_y = 4 * SCALE
+					screen.blit(txt_obj, (obj_x, obj_y))
+				except Exception:
+					pass
+			# ESC hint (re-draw on top)
+			try:
+				txt2 = esc_ui_font.render('× ESC', True, (255, 255, 255))
+				pad2 = 6 * SCALE
+				bg_w2 = txt2.get_width() + pad2 * 2
+				bg_h2 = txt2.get_height() + pad2 * 2
+				bg2 = pygame.Surface((bg_w2, bg_h2), pygame.SRCALPHA)
+				bg2.fill((0, 0, 0, 160))
+				bg2.blit(txt2, (pad2, pad2))
+				screen.blit(bg2, (screen_w - bg_w2 - 8 * SCALE, 8 * SCALE))
+			except Exception:
+				pass
 		except Exception:
 			pass
 		pygame.display.flip()
