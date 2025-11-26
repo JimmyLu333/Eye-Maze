@@ -598,7 +598,8 @@ def main():
 						pass
 				screen.blit(ceil_surf, (0, 0))
 			else:
-				pygame.draw.rect(screen, (100, 150, 200), (0, 0, screen_w, half_h))
+				# draw sky as solid black for lower GPU cost
+				pygame.draw.rect(screen, (0, 0, 0), (0, 0, screen_w, half_h))
 		else:
 			# fallback: tile existing textures or solid colors as before
 			if ceil_tex:
@@ -624,7 +625,8 @@ def main():
 						else:
 							screen.blit(scaled, (xx, yy))
 			else:
-				screen.fill((100, 150, 200))  # sky
+				# keep sky black (no ceiling texture) to minimize rendering cost
+				screen.fill((0, 0, 0))  # sky
 
 			if floor_tex:
 				# tile the floor texture across bottom half
