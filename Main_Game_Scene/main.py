@@ -33,6 +33,15 @@ except Exception:
 	except Exception:
 		EyeCapture = None
 
+# 导入 Monster 类
+try:
+	from Main_Game_Scene.monster import Monster
+except Exception:
+	try:
+		from monster import Monster
+	except Exception:
+		Monster = None
+
 # maze generation and minimap helper moved to separate module for clarity
 try:
 	from Main_Game_Scene.maze import generate_maze, draw_minimap
@@ -343,6 +352,16 @@ def main():
 	max_depth = 20
 	wall_height = 120 * SCALE
 
+	# 初始化 Monster
+	monster = None
+	if Monster:
+		# 将怪物放置在出口位置，或者离玩家较远的位置
+		monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+		print(f"✅ Monster initialized at ({exit_x + 0.5}, {exit_y + 0.5})")
+	else:
+		print("⚠️ Warning: Monster class not imported, monster disabled.")
+
+	# main loop
 	running = True
 	frame_count = 0
 	start_time = pygame.time.get_ticks()
@@ -489,6 +508,29 @@ def main():
 			state = eye_mech.update(frame)
 		except Exception:
 			state = {"blackout": False, "enemy": False, "ear": None}
+
+		# --- Monster Update ---
+		if monster:
+			# 玩家闭眼时 state.get('blackout') 为 True
+			# Monster 需要知道眼睛是否睁开
+			is_eye_open = not state.get('blackout', False)
+			
+			monster.update((px, py), pa, is_eye_open, dt)
+			
+			if monster.trigger_scare:
+				# 触发恐怖画面
+				screen.fill((50, 0, 0)) # 暗红色背景
+				try:
+					font_scare = pygame.font.SysFont(None, int(100 * SCALE))
+					text_scare = font_scare.render("DON'T BLINK!", True, (255, 0, 0))
+					screen.blit(text_scare, (screen_w//2 - text_scare.get_width()//2, screen_h//2 - text_scare.get_height()//2))
+				except:
+					pass
+				pygame.display.flip()
+				pygame.time.delay(3000)
+				running = False # 结束游戏
+				continue
+		# ----------------------
 
 		# if blackout triggered, show black screen this frame and skip heavy rendering
 		if state.get('blackout'):
@@ -871,6 +913,14 @@ def main():
 		# mini-map (moved to maze.draw_minimap) — always draw in top-left
 		# reveal walls only locally around visited cells (radius=1)
 		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
+
+		# Draw Monster on Minimap
+		if monster and mm_rect:
+			mm_scale = 8 * SCALE
+			mx_px = mm_rect.left + int(monster.x * mm_scale)
+			my_px = mm_rect.top + int(monster.y * mm_scale)
+			# Draw monster as a purple dot
+			pygame.draw.circle(screen, (128, 0, 128), (mx_px, my_px), int(3 * SCALE))
 		# copy the minimap area so we can re-draw it after any global overlays (keeps it unaffected)
 		mm_surf = None
 		try:
@@ -959,6 +1009,10 @@ def main():
 									maze[exit_y][exit_x] = 2
 								except Exception:
 									pass
+
+								# Re-initialize Monster
+								if Monster:
+									monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
 							except Exception:
 								# fallback: reuse existing maze if generation fails
 								maze = maze
