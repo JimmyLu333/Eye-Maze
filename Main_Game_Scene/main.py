@@ -169,8 +169,15 @@ def main():
 	CEIL_DESATURATE = 0.8
 	# Overlay brightness: 1.0 = unchanged, >1.0 makes the overlay text/brighter
 	OVERLAY_BRIGHTNESS = 1.6
-	screen_w, screen_h = 800 * SCALE, 600 * SCALE
+	screen_w, screen_h = 960 * SCALE, 720 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
+	# ensure the mouse cursor is hidden and the mouse is grabbed at startup
+	# (this makes the cursor invisible immediately; pressing 'M' will still toggle mode)
+	try:
+		pygame.event.set_grab(True)
+		pygame.mouse.set_visible(False)
+	except Exception:
+		pass
 	clock = pygame.time.Clock()
 	# small persistent ESC hint in top-left (rendered each frame)
 	try:
@@ -264,6 +271,13 @@ def main():
 	# player (initial position)
 	px, py = 1.5, 1.5
 	pa = 0.0
+	# rotation smoothing and optional mouse look
+	# target angle is what inputs drive; pa will smoothly interpolate towards target_pa
+	target_pa = pa
+	# enable mouse look by default (can still toggle with 'M')
+	MOUSE_LOOK = True
+	MOUSE_SENSITIVITY = 0.001 * SCALE	# radians per pixel (tweakable)
+	ROT_SMOOTHING = 10.0	# larger -> faster/snappier (try 8..20)
 
 	# minimap state: track visited integer cells (minimap shown in top-left)
 	visited_cells = set()
@@ -344,6 +358,15 @@ def main():
 			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
 				running = False
 
+			# toggle mouse look
+			if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+				MOUSE_LOOK = not MOUSE_LOOK
+				# when enabling mouse look, capture the mouse and hide cursor
+				try:
+					pygame.event.set_grab(MOUSE_LOOK)
+					pygame.mouse.set_visible(not MOUSE_LOOK)
+				except Exception:
+					pass
 			# Debug-key handling for DummyEye (only when no camera / using Dummy)
 			elif event.type == pygame.KEYDOWN:
 				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
@@ -366,9 +389,28 @@ def main():
 						eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
 						eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
 						print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
+			# mouse motion for mouse-look
+			elif event.type == pygame.MOUSEMOTION and MOUSE_LOOK:
+				# relative mouse movement controls yaw
+				rel_x, _ = event.rel
+				# map mouse X directly to yaw so moving mouse left turns view left
+				# (positive rel_x -> mouse moved right -> increase angle; negative -> left)
+				target_pa += rel_x * MOUSE_SENSITIVITY
 			# (removed runtime F toggle; perspective floor is enabled by default)
 
 		keys = pygame.key.get_pressed()
+		# smooth rotation: interpolate current angle towards target angle
+		# normalize angles to shortest path
+		def _angle_diff(a, b):
+			# returns smallest difference to add to a to get to b
+			d = (b - a + math.pi) % (2 * math.pi) - math.pi
+			return d
+		# compute interpolation factor (exponential smoothing)
+		if ROT_SMOOTHING > 0:
+			alpha = 1.0 - math.exp(-ROT_SMOOTHING * dt)
+			pa += _angle_diff(pa, target_pa) * alpha
+		else:
+			pa = target_pa
 		# also support direct key-state quit in case KEYDOWN events are missed
 		try:
 			if keys[pygame.K_ESCAPE]:
@@ -377,10 +419,11 @@ def main():
 		except Exception:
 			# if something odd happens with key state, fall back to event handling
 			pass
+		# update target angle from keyboard
 		if keys[pygame.K_a]:
-			pa -= rot_speed * dt
+			target_pa -= rot_speed * dt
 		if keys[pygame.K_d]:
-			pa += rot_speed * dt
+			target_pa += rot_speed * dt
 		
 		# 检测玩家移动
 		is_moving = False
@@ -876,7 +919,7 @@ def main():
 		try:
 			# create once and reuse
 			if 'light_system' not in locals() and LightSystem is not None:
-				light_system = LightSystem(darkness=0.8, vignette=True, vignette_strength=0.55)
+				light_system = LightSystem(darkness=0.6, vignette=True, vignette_strength=0.55)
 			if LightSystem is not None and light_system is not None:
 				light_system.apply(screen)
 			# restore minimap on top so it's not darkened by the overlay
