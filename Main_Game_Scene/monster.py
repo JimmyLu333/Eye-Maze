@@ -1,5 +1,6 @@
 import math
 import random
+from collections import deque
 
 class Monster:
     def __init__(self, start_pos, maze):
@@ -23,10 +24,46 @@ class Monster:
         
         # 巡逻相关
         self.patrol_target = None
+        self.path = [] # 存储路径点 (x, y)
         
         # 恐怖画面触发标记
         self.trigger_scare = False
         self.distance_to_player = 0.0
+
+    def find_path(self, start, end):
+        """
+        使用 BFS 寻找从 start 到 end 的路径
+        :param start: (x, y) 整数坐标
+        :param end: (x, y) 整数坐标
+        :return: list of (x, y) 路径点
+        """
+        start = (int(start[0]), int(start[1]))
+        end = (int(end[0]), int(end[1]))
+        
+        if start == end:
+            return []
+            
+        queue = deque([(start, [])])
+        visited = set([start])
+        
+        rows = len(self.maze)
+        cols = len(self.maze[0])
+        
+        while queue:
+            (curr_x, curr_y), path = queue.popleft()
+            
+            if (curr_x, curr_y) == end:
+                return path + [(curr_x + 0.5, curr_y + 0.5)] # 返回中心点坐标
+            
+            # 检查四个方向
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = curr_x + dx, curr_y + dy
+                
+                if 0 <= ny < rows and 0 <= nx < cols and self.maze[ny][nx] == 0 and (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    queue.append(((nx, ny), path + [(curr_x + 0.5, curr_y + 0.5)]))
+                    
+        return [] # 没找到路径
 
     def update(self, player_pos, player_angle, eye_open, dt):
         """
@@ -88,22 +125,43 @@ class Monster:
 
         if self.state == 'patrol':
             speed = self.patrol_speed
-            # 简单的随机巡逻逻辑
-            if self.patrol_target is None or math.hypot(self.x - self.patrol_target[0], self.y - self.patrol_target[1]) < 0.5:
+            
+            # 如果没有目标或已到达目标，寻找新目标
+            if self.patrol_target is None or (not self.path and math.hypot(self.x - self.patrol_target[0], self.y - self.patrol_target[1]) < 0.5):
                 # 随机找一个空地作为新目标
+                found_target = False
                 for _ in range(10): # 尝试10次
                     ty = random.randint(0, len(self.maze) - 1)
                     tx = random.randint(0, len(self.maze[0]) - 1)
                     if self.maze[ty][tx] == 0:
                         self.patrol_target = (tx + 0.5, ty + 0.5)
-                        break
+                        # 计算路径
+                        self.path = self.find_path((self.x, self.y), self.patrol_target)
+                        if self.path:
+                            found_target = True
+                            break
+                if not found_target:
+                    self.patrol_target = None # 重试
             
-            if self.patrol_target:
-                target_x, target_y = self.patrol_target
+            # 如果有路径，沿着路径移动
+            if self.path:
+                next_node = self.path[0]
+                target_x, target_y = next_node
+                
+                # 如果到达当前路径点，移除并前往下一个
+                if math.hypot(self.x - target_x, self.y - target_y) < 0.1:
+                    self.path.pop(0)
+                    if self.path:
+                        target_x, target_y = self.path[0]
+                    else:
+                        target_x, target_y = self.patrol_target
+            elif self.patrol_target:
+                 target_x, target_y = self.patrol_target
             
         elif self.state == 'chase':
             speed = self.chase_speed
             target_x, target_y = player_pos
+            self.path = [] # 追逐时清空巡逻路径
             
             # 保持距离逻辑：如果距离玩家太近，就停止移动，让玩家能看到
             keep_distance = 2.5
@@ -113,6 +171,7 @@ class Monster:
         elif self.state == 'attack':
             speed = self.attack_speed
             target_x, target_y = player_pos
+            self.path = [] # 攻击时清空巡逻路径
             # 如果非常接近，触发恐怖画面
             if self.distance_to_player < 0.5:
                 self.trigger_scare = True
