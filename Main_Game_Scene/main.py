@@ -811,9 +811,9 @@ def main():
 					width_px = max(6, int((DOOR_W / cam_fwd) * wall_height * 0.45))
 					top = int(screen_h / 2 - height_px / 2)
 					left = int(screen_x - width_px / 2)
-					# draw simple frame and inner panel
+					# draw simple frame and inner panel (center now pure black)
 					pygame.draw.rect(screen, (200, 200, 200), (left - 3, top - 3, width_px + 6, height_px + 6))
-					pygame.draw.rect(screen, (30, 30, 30), (left, top, width_px, height_px))
+					pygame.draw.rect(screen, (0, 0, 0), (left, top, width_px, height_px))
 					# small EXIT label above the door
 					try:
 						lbl_font = pygame.font.SysFont(None, max(12, int(14 * SCALE)))
