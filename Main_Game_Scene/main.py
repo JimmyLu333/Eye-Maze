@@ -403,12 +403,17 @@ def main():
 		dy = math.sin(pa) * move_speed * dt
 		if keys[pygame.K_w]:
 			nx, ny = px + dx, py + dy
-			if maze[int(ny)][int(nx)] == 0:
+			cellx, celly = int(nx), int(ny)
+			# allow moving into the exit cell even if it's marked as a door (so touching it advances)
+			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 				px, py = nx, ny
 				is_moving = True
 		if keys[pygame.K_s]:
 			nx, ny = px - dx, py - dy
-			if maze[int(ny)][int(nx)] == 0:
+			cellx, celly = int(nx), int(ny)
+			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 				px, py = nx, ny
 				is_moving = True
 
@@ -816,24 +821,7 @@ def main():
 						screen.blit(exit_lbl, (screen_x - exit_lbl.get_width() // 2, top - exit_lbl.get_height() - 6))
 					except Exception:
 						pass
-					# interaction prompt when close enough and roughly facing the door
-					angle_to_door = math.atan2(rel_y, rel_x)
-					angle_diff = (angle_to_door - pa + math.pi) % (2 * math.pi) - math.pi
-					if dist_primary <= INTERACT_DIST and abs(angle_diff) < 1.0:
-						try:
-							prompt_font = pygame.font.SysFont(None, max(16, int(18 * SCALE)))
-							prompt = prompt_font.render('Press E to enter', True, (240, 240, 240))
-							screen.blit(prompt, (screen_x - prompt.get_width() // 2, top + height_px + 6))
-							# open on key press
-							if keys[pygame.K_e]:
-								door_open = True
-								# un-block maze cell so player can walk through
-								try:
-									maze[exit_y][exit_x] = 0
-								except Exception:
-									pass
-						except Exception:
-							pass
+					# no interaction prompt or E-to-open: touching (entering) the exit cell advances
 		except Exception:
 			pass
 
