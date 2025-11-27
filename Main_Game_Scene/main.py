@@ -17,6 +17,16 @@ except ImportError:
 		print("⚠️ 警告：无法导入SoundManager，音效功能将不可用")
 		SoundManager = None
 
+# 导入菜单管理器
+try:
+	from Main_Game_Scene.menu import MenuManager
+except ImportError:
+	try:
+		from menu import MenuManager
+	except:
+		print("⚠️ 警告：无法导入MenuManager，菜单功能将不可用")
+		MenuManager = None
+
 try:
 	from Main_Game_Scene.eye_capture import EyeCapture
 except Exception:
@@ -149,6 +159,10 @@ def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
 
 def main():
 	pygame.init()
+	
+	# 游戏状态控制
+	game_state = 'menu'  # 'menu' 或 'playing'
+	
 	# CLI: allow optional no-camera and blink detection parameters
 	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument('--no-camera', action='store_true', help='Run without opening a physical camera')
@@ -178,7 +192,18 @@ def main():
 	OVERLAY_BRIGHTNESS = 1.6
 	screen_w, screen_h = 800 * SCALE, 600 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
+	pygame.display.set_caption("Eye Maze")
 	clock = pygame.time.Clock()
+	
+	# 初始化菜单管理器
+	menu_manager = None
+	if MenuManager:
+		try:
+			menu_manager = MenuManager(screen_w, screen_h)
+			print("✅ 菜单系统初始化成功")
+		except Exception as e:
+			print(f"⚠️ 菜单系统初始化失败: {e}")
+	
 	# small persistent ESC hint in top-left (rendered each frame)
 	try:
 		esc_ui_font = pygame.font.SysFont(None, 18 * SCALE)
@@ -341,11 +366,31 @@ def main():
 		return pygame.font.SysFont(None, size, bold=bold)
 	while running:
 		dt = clock.tick(60) / 1000.0
+		
+		# 更新菜单动画
+		if game_state == 'menu' and menu_manager:
+			menu_manager.update(dt)
+		
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				running = False
-			elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-				running = False
+			
+			# 菜单事件处理
+			if game_state == 'menu' and menu_manager:
+				action = menu_manager.handle_event(event)
+				if action == 'start_game':
+					game_state = 'playing'
+					menu_manager.hide()
+					print("🎮 游戏开始！")
+					continue
+			
+			# 游戏中按 ESC 返回菜单
+			elif game_state == 'playing' and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+				game_state = 'menu'
+				if menu_manager:
+					menu_manager.show_start_screen()
+				print("📋 返回菜单")
+				continue
 			# Debug-key handling for DummyEye (only when no camera / using Dummy)
 			elif event.type == pygame.KEYDOWN:
 				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
@@ -366,44 +411,44 @@ def main():
 					# I: 切换说明显示
 					elif event.key == pygame.K_i:
 						eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
-						eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
-						print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
-			# (removed runtime F toggle; perspective floor is enabled by default)
+					eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
+					print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
+		# (removed runtime F toggle; perspective floor is enabled by default)
 
-		keys = pygame.key.get_pressed()
-		# also support direct key-state quit in case KEYDOWN events are missed
-		try:
-			if keys[pygame.K_ESCAPE]:
-				running = False
-				continue
-		except Exception:
-			# if something odd happens with key state, fall back to event handling
-			pass
-		if keys[pygame.K_a]:
-			pa -= rot_speed * dt
-		if keys[pygame.K_d]:
-			pa += rot_speed * dt
-		
-		# 检测玩家移动
-		is_moving = False
-		dx = math.cos(pa) * move_speed * dt
-		dy = math.sin(pa) * move_speed * dt
-		if keys[pygame.K_w]:
-			nx, ny = px + dx, py + dy
-			if maze[int(ny)][int(nx)] == 0:
-				px, py = nx, ny
-				is_moving = True
-		if keys[pygame.K_s]:
-			nx, ny = px - dx, py - dy
-			if maze[int(ny)][int(nx)] == 0:
-				px, py = nx, ny
-				is_moving = True
+		# 只在游戏进行时处理游戏逻辑
+		if game_state == 'playing':
+			keys = pygame.key.get_pressed()
+			# also support direct key-state quit in case KEYDOWN events are missed
+			try:
+				if keys[pygame.K_ESCAPE]:
+					running = False
+					continue
+			except Exception:
+				# if something odd happens with key state, fall back to event handling
+				pass
+			if keys[pygame.K_a]:
+				pa -= rot_speed * dt
+			if keys[pygame.K_d]:
+				pa += rot_speed * dt
+			
+			# 检测玩家移动
+			is_moving = False
+			dx = math.cos(pa) * move_speed * dt
+			dy = math.sin(pa) * move_speed * dt
+			if keys[pygame.K_w]:
+				nx, ny = px + dx, py + dy
+				if maze[int(ny)][int(nx)] == 0:
+					px, py = nx, ny
+					is_moving = True
+			if keys[pygame.K_s]:
+				nx, ny = px - dx, py - dy
+				if maze[int(ny)][int(nx)] == 0:
+					px, py = nx, ny
+					is_moving = True
 
-		# 更新脚步声
-		if sound_manager:
-			sound_manager.update_footsteps(is_moving, dt)
-
-		# camera frame + eye state
+			# 更新脚步声
+			if sound_manager:
+				sound_manager.update_footsteps(is_moving, dt)		# camera frame + eye state
 		if cap is not None:
 			ret, frame = cap.read()
 			if not ret:
@@ -857,23 +902,28 @@ def main():
 				pygame.display.flip()
 				clock.tick(30)
 
-		frame_count += 1
-		# draw persistent ESC hint in top-right so players know they can quit anytime
-		try:
-			txt = esc_ui_font.render('× ESC', True, (255, 255, 255))
-			pad = 6 * SCALE
-			bg_w = txt.get_width() + pad * 2
-			bg_h = txt.get_height() + pad * 2
-			bg = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
-			# semi-transparent black background
-			bg.fill((0, 0, 0, 160))
-			bg.blit(txt, (pad, pad))
-			# position top-right with small margin
-			screen.blit(bg, (screen_w - bg_w - 8 * SCALE, 8 * SCALE))
-		except Exception:
-			pass
+			frame_count += 1
+			# draw persistent ESC hint in top-right so players know they can quit anytime
+			try:
+				txt = esc_ui_font.render('× ESC', True, (255, 255, 255))
+				pad = 6 * SCALE
+				bg_w = txt.get_width() + pad * 2
+				bg_h = txt.get_height() + pad * 2
+				bg = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
+				# semi-transparent black background
+				bg.fill((0, 0, 0, 160))
+				bg.blit(txt, (pad, pad))
+				# position top-right with small margin
+				screen.blit(bg, (screen_w - bg_w - 8 * SCALE, 8 * SCALE))
+			except Exception:
+				pass
+		
+		# 渲染菜单或游戏画面
+		if game_state == 'menu' and menu_manager:
+			menu_manager.draw(screen)
+		
 		pygame.display.flip()
-
+	
 	pygame.quit()
 
 
