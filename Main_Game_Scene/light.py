@@ -22,30 +22,49 @@ class LightSystem:
         self._cached_size = None
         self._vignette_surf = None
 
-    def _create_vignette(self, size):
+    def _create_vignette(self, size, center=None, radius=None, inner_frac=0.25):
         """Create a radial vignette surface for the given size.
         The vignette surface has black pixels with alpha values higher toward the edges.
         """
         w, h = size
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        cx, cy = w // 2, h // 2
-        max_r = math.hypot(cx, cy)
+        if center is None:
+            cx, cy = w // 2, h // 2
+        else:
+            cx, cy = int(center[0]), int(center[1])
+        # determine outer radius for the bright area
+        if radius is None:
+            max_r = max(
+                math.hypot(cx, cy),
+                math.hypot(w - cx, cy),
+                math.hypot(cx, h - cy),
+                math.hypot(w - cx, h - cy),
+            )
+        else:
+            max_r = float(radius)
+
         # We'll draw a series of concentric circles to approximate a smooth radial alpha.
-        steps = max(16, int(max_r // 4))
+        steps = max(16, int(max(4, max_r // 4)))
         # Edge alpha target (scaled by vignette_strength)
         edge_alpha = int(255 * self.vignette_strength)
+        inner_r = max(0.0, max_r * float(inner_frac))
+
+        # Draw from outer to inner. The vignette surface subtracts alpha from the dark overlay,
+        # so higher alpha near the center makes the center brighter relative to edges.
         for i in range(steps, 0, -1):
             frac = i / float(steps)
-            r = int(frac * max_r)
-            # Alpha grows toward the edge: near center alpha close to 0, near edge close to edge_alpha
-            a = int(edge_alpha * (1.0 - frac))
+            r = frac * max_r
+            if r <= inner_r:
+                a = edge_alpha
+            else:
+                t = (r - inner_r) / max(1e-6, (max_r - inner_r))
+                a = int(edge_alpha * (1.0 - t))
             if a <= 0:
                 continue
-            col = (*self.color, a)
+            col = (*self.color, int(a))
             try:
-                pygame.draw.circle(surf, col, (cx, cy), r)
+                pygame.draw.circle(surf, col, (cx, cy), int(r))
             except Exception:
-                # fallback: fill entire surface with lower alpha
                 surf.fill(col)
                 break
         return surf
@@ -67,10 +86,14 @@ class LightSystem:
 
         # vignette: subtract a radial alpha to keep center brighter
         if self.vignette and self.vignette_strength > 0.0:
-            if self._cached_size != (w, h) or self._vignette_surf is None:
+            focus = getattr(self, '_focus_center', None)
+            radius = getattr(self, 'light_radius', None)
+            inner_frac = getattr(self, 'light_inner_frac', 0.25)
+            cache_key = (w, h, focus, radius, inner_frac)
+            if getattr(self, '_cached_key', None) != cache_key or self._vignette_surf is None:
                 try:
-                    self._vignette_surf = self._create_vignette((w, h))
-                    self._cached_size = (w, h)
+                    self._vignette_surf = self._create_vignette((w, h), center=focus, radius=radius, inner_frac=inner_frac)
+                    self._cached_key = cache_key
                 except Exception:
                     self._vignette_surf = None
             if self._vignette_surf:

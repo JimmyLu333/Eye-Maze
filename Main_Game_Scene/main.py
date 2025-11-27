@@ -334,7 +334,7 @@ def main():
 
 	# if no adjacent wall, don't place graffiti (could extend to floor later)
 
-	move_speed = 3.0 * SCALE
+	move_speed = 1.5 * SCALE
 	rot_speed = 2.0
 
 	fov = math.pi / 3
@@ -883,7 +883,7 @@ def main():
 			try:
 				# slightly smaller handwritten-style font for objective label and center it beneath the mini-map
 				obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
-				txt_obj = obj_font.render('Objective: Exit the maze', True, (255, 255, 255))
+				txt_obj = obj_font.render('ESC: Exit the maze', True, (255, 255, 255))
 				# center horizontally under the minimap and place a small vertical gap
 				obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
 				obj_y = mm_rect.bottom + int(6 * SCALE)
@@ -1024,8 +1024,21 @@ def main():
 		try:
 			# create once and reuse
 			if 'light_system' not in locals() and LightSystem is not None:
-				light_system = LightSystem(darkness=0.6, vignette=True, vignette_strength=0.55)
+				# make near-player area brighter by lowering darkness slightly and increasing vignette strength
+				light_system = LightSystem(darkness=0.7, vignette=True, vignette_strength=0.75)
 			if LightSystem is not None and light_system is not None:
+				try:
+					# focus the vignette near the player's view center (slightly below center to favour floor)
+					light_system._focus_center = (screen_w // 2, int(screen_h * 0.55))
+				except Exception:
+					light_system._focus_center = None
+				try:
+					# light radius in pixels (how far player can see). scale with SCALE if desired.
+					light_system.light_radius = int(220 * SCALE)
+					# inner fraction: fraction of radius that's fully lit (larger -> bigger bright core)
+					light_system.light_inner_frac = 0.5
+				except Exception:
+					pass
 				light_system.apply(screen)
 			# restore minimap on top so it's not darkened by the overlay
 			if mm_surf is not None:
@@ -1037,7 +1050,7 @@ def main():
 			if not is_official:
 				try:
 					obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
-					txt_obj = obj_font.render('Objective: Exit the maze', True, (255, 255, 255))
+					txt_obj = obj_font.render('ESC: Exit the maze', True, (255, 255, 255))
 					obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
 					obj_y = mm_rect.bottom + int(6 * SCALE)
 					if obj_y < 4 * SCALE:
