@@ -7,6 +7,14 @@ import argparse
 import pygame
 
 # 导入声音管理器
+# optional local light system
+try:
+	from Main_Game_Scene.light import LightSystem
+except Exception:
+	try:
+		from light import LightSystem
+	except Exception:
+		LightSystem = None
 try:
 	from Music_And_SFX.Music import SoundManager
 except ImportError:
@@ -34,6 +42,15 @@ except Exception:
 		from eye_capture import EyeCapture
 	except Exception:
 		EyeCapture = None
+
+# 导入 Monster 类
+try:
+	from Main_Game_Scene.monster import Monster
+except Exception:
+	try:
+		from monster import Monster
+	except Exception:
+		Monster = None
 
 # maze generation and minimap helper moved to separate module for clarity
 try:
@@ -175,9 +192,16 @@ def main():
 	CEIL_DESATURATE = 0.8
 	# Overlay brightness: 1.0 = unchanged, >1.0 makes the overlay text/brighter
 	OVERLAY_BRIGHTNESS = 1.6
-	screen_w, screen_h = 800 * SCALE, 600 * SCALE
+	screen_w, screen_h = 960 * SCALE, 720 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	pygame.display.set_caption("Eye Maze")
+	# ensure the mouse cursor is hidden and the mouse is grabbed at startup
+	# (this makes the cursor invisible immediately; pressing 'M' will still toggle mode)
+	try:
+		pygame.event.set_grab(True)
+		pygame.mouse.set_visible(False)
+	except Exception:
+		pass
 	clock = pygame.time.Clock()
 	
 	# 初始化菜单管理器
@@ -281,6 +305,13 @@ def main():
 	# player (initial position)
 	px, py = 1.5, 1.5
 	pa = 0.0
+	# rotation smoothing and optional mouse look
+	# target angle is what inputs drive; pa will smoothly interpolate towards target_pa
+	target_pa = pa
+	# enable mouse look by default (can still toggle with 'M')
+	MOUSE_LOOK = True
+	MOUSE_SENSITIVITY = 0.001 * SCALE	# radians per pixel (tweakable)
+	ROT_SMOOTHING = 10.0	# larger -> faster/snappier (try 8..20)
 
 	# minimap state: track visited integer cells (minimap shown in top-left)
 	visited_cells = set()
@@ -320,9 +351,24 @@ def main():
 	except Exception:
 		graffiti_overlays = {}
 
+	# Door state: place a closed, collidable door at the exit cell.
+	# Use value 2 in the maze to denote a closed door (any non-zero value blocks movement).
+	door_open = False
+	try:
+		# mark door cell as '2' to act like a blocking tile until opened
+		maze[exit_y][exit_x] = 2
+	except Exception:
+		pass
+
+	# door world dimensions (in tile units)
+	DOOR_W = 0.8
+	DOOR_H = 1.8
+	SHOW_DOOR_DIST = 8.0
+	INTERACT_DIST = 1.6
+
 	# if no adjacent wall, don't place graffiti (could extend to floor later)
 
-	move_speed = 3.0 * SCALE
+	move_speed = 1.5 * SCALE
 	rot_speed = 2.0
 
 	fov = math.pi / 3
@@ -331,6 +377,16 @@ def main():
 	max_depth = 20
 	wall_height = 120 * SCALE
 
+	# 初始化 Monster
+	monster = None
+	if Monster:
+		# 将怪物放置在出口位置，或者离玩家较远的位置
+		monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+		print(f"✅ Monster initialized at ({exit_x + 0.5}, {exit_y + 0.5})")
+	else:
+		print("⚠️ Warning: Monster class not imported, monster disabled.")
+
+	# main loop
 	running = True
 	frame_count = 0
 	start_time = pygame.time.get_ticks()
@@ -380,6 +436,15 @@ def main():
 					menu_manager.show_start_screen()
 				print("📋 返回菜单")
 				continue
+			# toggle mouse look
+			if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+				MOUSE_LOOK = not MOUSE_LOOK
+				# when enabling mouse look, capture the mouse and hide cursor
+				try:
+					pygame.event.set_grab(MOUSE_LOOK)
+					pygame.mouse.set_visible(not MOUSE_LOOK)
+				except Exception:
+					pass
 			# Debug-key handling for DummyEye (only when no camera / using Dummy)
 			elif event.type == pygame.KEYDOWN:
 				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
@@ -402,12 +467,31 @@ def main():
 						eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
 					eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
 					print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
+			# mouse motion for mouse-look
+			elif event.type == pygame.MOUSEMOTION and MOUSE_LOOK:
+				# relative mouse movement controls yaw
+				rel_x, _ = event.rel
+				# map mouse X directly to yaw so moving mouse left turns view left
+				# (positive rel_x -> mouse moved right -> increase angle; negative -> left)
+				target_pa += rel_x * MOUSE_SENSITIVITY
 		# (removed runtime F toggle; perspective floor is enabled by default)
 
 		# 只在游戏进行时处理游戏逻辑
 		if game_state == 'playing':
 			keys = pygame.key.get_pressed()
-			# also support direct key-state quit in case KEYDOWN events are missed
+			# smooth rotation: interpolate current angle towards target angle
+		# normalize angles to shortest path
+		def _angle_diff(a, b):
+			# returns smallest difference to add to a to get to b
+			d = (b - a + math.pi) % (2 * math.pi) - math.pi
+			return d
+		# compute interpolation factor (exponential smoothing)
+		if ROT_SMOOTHING > 0:
+			alpha = 1.0 - math.exp(-ROT_SMOOTHING * dt)
+			pa += _angle_diff(pa, target_pa) * alpha
+		else:
+			pa = target_pa
+		# also support direct key-state quit in case KEYDOWN events are missed
 			try:
 				if keys[pygame.K_ESCAPE]:
 					running = False
@@ -415,10 +499,11 @@ def main():
 			except Exception:
 				# if something odd happens with key state, fall back to event handling
 				pass
-			if keys[pygame.K_a]:
-				pa -= rot_speed * dt
+			# update target angle from keyboard
+		if keys[pygame.K_a]:
+				target_pa -= rot_speed * dt
 			if keys[pygame.K_d]:
-				pa += rot_speed * dt
+				target_pa += rot_speed * dt
 			
 			# 检测玩家移动
 			is_moving = False
@@ -426,12 +511,17 @@ def main():
 			dy = math.sin(pa) * move_speed * dt
 			if keys[pygame.K_w]:
 				nx, ny = px + dx, py + dy
-				if maze[int(ny)][int(nx)] == 0:
+				cellx, celly = int(nx), int(ny)
+			# allow moving into the exit cell even if it's marked as a door (so touching it advances)
+			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 					px, py = nx, ny
 					is_moving = True
 			if keys[pygame.K_s]:
 				nx, ny = px - dx, py - dy
-				if maze[int(ny)][int(nx)] == 0:
+				cellx, celly = int(nx), int(ny)
+			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 					px, py = nx, ny
 					is_moving = True
 
@@ -462,6 +552,31 @@ def main():
 			state = eye_mech.update(frame)
 		except Exception:
 			state = {"blackout": False, "enemy": False, "ear": None}
+
+		# --- Monster Update ---
+		if monster:
+			# 玩家闭眼时 state.get('blackout') 为 True
+			# Monster 需要知道眼睛是否睁开
+			is_eye_open = not state.get('blackout', False)
+			
+			monster.update((px, py), pa, is_eye_open, dt)
+			
+			if monster.trigger_scare:
+				# 触发恐怖画面
+				# 先渲染最后一帧（包含怪物贴脸）
+				# 这里我们简单地填充红色，实际应该是在渲染循环里处理
+				screen.fill((50, 0, 0)) # 暗红色背景
+				try:
+					font_scare = pygame.font.SysFont(None, int(100 * SCALE))
+					text_scare = font_scare.render("DON'T BLINK!", True, (255, 0, 0))
+					screen.blit(text_scare, (screen_w//2 - text_scare.get_width()//2, screen_h//2 - text_scare.get_height()//2))
+				except:
+					pass
+				pygame.display.flip()
+				pygame.time.delay(3000)
+				running = False # 结束游戏
+				continue
+		# ----------------------
 
 		# if blackout triggered, show black screen this frame and skip heavy rendering
 		if state.get('blackout'):
@@ -634,7 +749,8 @@ def main():
 						pass
 				screen.blit(ceil_surf, (0, 0))
 			else:
-				pygame.draw.rect(screen, (100, 150, 200), (0, 0, screen_w, half_h))
+				# draw sky as solid black for lower GPU cost
+				pygame.draw.rect(screen, (0, 0, 0), (0, 0, screen_w, half_h))
 		else:
 			# fallback: tile existing textures or solid colors as before
 			if ceil_tex:
@@ -660,7 +776,8 @@ def main():
 						else:
 							screen.blit(scaled, (xx, yy))
 			else:
-				screen.fill((100, 150, 200))  # sky
+				# keep sky black (no ceiling texture) to minimize rendering cost
+				screen.fill((0, 0, 0))  # sky
 
 			if floor_tex:
 				# tile the floor texture across bottom half
@@ -689,12 +806,21 @@ def main():
 
 		ray_angle = pa - half_fov
 		slice_w = int(screen_w / num_rays) + 1
+		z_buffer = [float('inf')] * screen_w # Initialize Z-Buffer
+
 		for r in range(num_rays):
 			angle = ray_angle + (r / num_rays) * fov
 			depth, hit, hx, hy, mpx, mpy, side = cast_ray(px, py, angle, maze, max_depth=max_depth)
 			# simple fish-eye correction already handled by perp dist in DDA; still apply cosine to be safe
 			depth *= math.cos(angle - pa)
 			if depth <= 0: depth = 0.0001
+			
+			# Fill Z-Buffer for this column
+			x_start = int(r * (screen_w / num_rays))
+			for ix in range(x_start, x_start + slice_w):
+				if 0 <= ix < screen_w:
+					z_buffer[ix] = depth
+
 			proj_height = min(int(wall_height / (depth + 0.0001) * 2), screen_h)
 			x = int(r * (screen_w / num_rays))
 
@@ -787,15 +913,177 @@ def main():
 				col = (color_val, color_val, color_val)
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
+		# --- Sprite Rendering (Monster) ---
+		if monster:
+			# 1. Calculate sprite position relative to camera
+			sprite_x = monster.x - px
+			sprite_y = monster.y - py
+
+			# 2. Transform sprite with the inverse camera matrix
+			# [ planeX   dirX ] -1                                       [ dirY      -dirX ]
+			# [               ]       =  1/(planeX*dirY-dirX*planeY) *   [                 ]
+			# [ planeY   dirY ]                                          [ -planeY  planeX ]
+
+			# We need camera plane and direction vectors.
+			# dirX = cos(pa), dirY = sin(pa)
+			# planeX = -sin(pa) * tan(half_fov), planeY = cos(pa) * tan(half_fov) (approx)
+			
+			# Let's use a simpler approach since we have pa (player angle)
+			# Rotate sprite position by -pa
+			inv_det = 1.0 # We can just rotate
+			
+			# Rotate the sprite position so that the camera direction is the X axis
+			# New X is forward distance, New Y is lateral distance
+			# rot_x = sprite_x * cos(-pa) - sprite_y * sin(-pa)
+			# rot_y = sprite_x * sin(-pa) + sprite_y * cos(-pa)
+			
+			# Actually, standard raycasting sprite math:
+			# transformX = invDet * (dirY * spriteX - dirX * spriteY)
+			# transformY = invDet * (-planeY * spriteX + planeX * spriteY)
+			
+			# Let's stick to the rotation method which is intuitive
+			# Forward distance (depth)
+			transform_z = sprite_x * math.cos(pa) + sprite_y * math.sin(pa)
+			# Lateral distance (left/right)
+			transform_x = -sprite_x * math.sin(pa) + sprite_y * math.cos(pa)
+
+			if transform_z > 0.1: # Only draw if in front of camera
+				# Project to screen X
+				# screen_x = (0.5 * screen_w) * (1 + transform_x / (transform_z * tan(half_fov)))
+				# Simplified:
+				sprite_screen_x = int((screen_w / 2) * (1 + transform_x / (transform_z * math.tan(half_fov))))
+				
+				# Calculate height of the sprite on screen
+				sprite_height = abs(int(screen_h / (transform_z))) # Basic scaling
+				# Calculate width of the sprite
+				sprite_width = abs(int(screen_h / (transform_z))) # Square sprite
+
+				sprite_top_y = int((screen_h - sprite_height) / 2)
+				
+				# Draw the sprite (Placeholder: Red Rectangle with Eyes)
+				# In a real scenario, we would iterate columns and check Z-buffer
+				
+				# Create a temporary surface for the monster if not loaded
+				if not hasattr(monster, 'texture'):
+					monster.texture = pygame.Surface((64, 64))
+					monster.texture.fill((255, 0, 0)) # Red body
+					pygame.draw.circle(monster.texture, (255, 255, 0), (20, 20), 8) # Left Eye
+					pygame.draw.circle(monster.texture, (255, 255, 0), (44, 20), 8) # Right Eye
+					pygame.draw.rect(monster.texture, (0, 0, 0), (16, 40, 32, 10)) # Mouth
+
+				# Scale texture to sprite size
+				if sprite_width > 0 and sprite_height > 0:
+					scaled_tex = pygame.transform.scale(monster.texture, (sprite_width, sprite_height))
+					
+					# Render column by column to respect Z-Buffer
+					start_x = int(sprite_screen_x - sprite_width / 2)
+					end_x = int(sprite_screen_x + sprite_width / 2)
+					
+					# Clip to screen boundaries
+					tex_start_x = 0
+					if start_x < 0:
+						tex_start_x = -start_x
+						start_x = 0
+					if end_x >= screen_w:
+						end_x = screen_w - 1
+						
+					for stripe in range(start_x, end_x):
+						# Check Z-Buffer
+						if transform_z < z_buffer[stripe]:
+							# Draw this column of the sprite
+							tex_x = int((stripe - (sprite_screen_x - sprite_width / 2)) * 64 / sprite_width)
+							# Simple blit of the column
+							# To optimize, we could blit the whole thing if we knew it wasn't occluded, 
+							# but column-based is correct for intersection.
+							# For Python/Pygame, blitting columns is slow. 
+							# Optimization: Check if the center is visible or just blit the whole thing if close?
+							# Let's stick to column blit for correctness.
+							try:
+								# Get column from scaled texture
+								# Actually, scaling the whole texture every frame is slow.
+								# Better: Scale once per frame (done above), then subsurface.
+								col_surf = scaled_tex.subsurface((stripe - start_x + tex_start_x, 0, 1, sprite_height))
+								screen.blit(col_surf, (stripe, sprite_top_y))
+							except Exception:
+								pass
+		# -------------------------------------
+
+		# Render a simple upright door (no texture) at the exit if it's closed and within view.
+		try:
+			if not door_open:
+				dx_world = exit_x + 0.5
+				dy_world = exit_y + 0.5
+				rel_x = dx_world - px
+				rel_y = dy_world - py
+				dist_primary = math.hypot(rel_x, rel_y)
+				# camera-forward and right coordinates
+				cam_fwd = rel_x * math.cos(pa) + rel_y * math.sin(pa)
+				cam_right = -rel_x * math.sin(pa) + rel_y * math.cos(pa)
+				# determine occlusion: cast a ray toward the door and check for intervening walls
+				try:
+					ray_angle = math.atan2(rel_y, rel_x)
+					ray_depth, ray_hit, ray_hx, ray_hy, ray_mx, ray_my, ray_side = cast_ray(px, py, ray_angle, maze, max_depth=dist_primary + 0.5)
+				except Exception:
+					ray_depth, ray_hit, ray_mx, ray_my = None, False, None, None
+				wall_blocks = False
+				if ray_hit:
+					# if the ray hit a wall cell before reaching the door, treat as blocked
+					try:
+						if (ray_mx, ray_my) != (exit_x, exit_y):
+							wall_blocks = True
+						elif ray_depth is not None and ray_depth < dist_primary - 0.25:
+							wall_blocks = True
+					except Exception:
+						pass
+
+				# only render when in front of player, reasonably near, and not blocked by walls
+				if (not wall_blocks) and cam_fwd > 0.05 and dist_primary <= SHOW_DOOR_DIST:
+					# project to screen x
+					scale_x = (cam_right / (cam_fwd * math.tan(half_fov)))
+					screen_x = int(screen_w / 2 * (1 + scale_x))
+					# approximate vertical size (placeholders tuned to wall_height)
+					height_px = max(8, int((DOOR_H / cam_fwd) * wall_height * 0.9))
+					width_px = max(6, int((DOOR_W / cam_fwd) * wall_height * 0.45))
+					top = int(screen_h / 2 - height_px / 2)
+					left = int(screen_x - width_px / 2)
+					# draw simple frame and inner panel (center now pure black)
+					pygame.draw.rect(screen, (200, 200, 200), (left - 3, top - 3, width_px + 6, height_px + 6))
+					pygame.draw.rect(screen, (0, 0, 0), (left, top, width_px, height_px))
+					# small EXIT label above the door
+					try:
+						lbl_font = pygame.font.SysFont(None, max(12, int(14 * SCALE)))
+						exit_lbl = lbl_font.render('EXIT', True, (255, 220, 80))
+						screen.blit(exit_lbl, (screen_x - exit_lbl.get_width() // 2, top - exit_lbl.get_height() - 6))
+					except Exception:
+						pass
+					# no interaction prompt or E-to-open: touching (entering) the exit cell advances
+		except Exception:
+			pass
+
 		# mini-map (moved to maze.draw_minimap) — always draw in top-left
 		# reveal walls only locally around visited cells (radius=1)
 		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
+
+		# Draw Monster on Minimap
+		if monster and mm_rect:
+			mm_scale = 8 * SCALE
+			mx_px = mm_rect.left + int(monster.x * mm_scale)
+			my_px = mm_rect.top + int(monster.y * mm_scale)
+			# Draw monster as a purple dot
+			pygame.draw.circle(screen, (128, 0, 128), (mx_px, my_px), int(3 * SCALE))
+		# copy the minimap area so we can re-draw it after any global overlays (keeps it unaffected)
+		mm_surf = None
+		try:
+			# mm_rect may be a pygame.Rect
+			mm_surf = screen.subsurface(mm_rect).copy()
+		except Exception:
+			mm_surf = None
 		# If we're still in the tutorial (not official), show an objective UI centered beneath the mini-map
 		if not is_official:
 			try:
 				# slightly smaller handwritten-style font for objective label and center it beneath the mini-map
 				obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
-				txt_obj = obj_font.render('Objective: Exit the maze', True, (255, 255, 255))
+				txt_obj = obj_font.render('ESC: Exit the maze', True, (255, 255, 255))
 				# center horizontally under the minimap and place a small vertical gap
 				obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
 				obj_y = mm_rect.bottom + int(6 * SCALE)
@@ -844,19 +1132,54 @@ def main():
 						mx, my = ev.pos
 						# check button click
 						if btn_rect.collidepoint(mx, my):
-							# start official level: copy current maze and reset player/time
-							maze = [row[:] for row in maze]
+							# start official level: generate a new maze (larger) and reset player/time
+							try:
+								# increase maze size for the next level (keep caps)
+								map_w = min(41, map_w + 4)
+								map_h = min(31, map_h + 2)
+								# ensure odd dimensions
+								if map_w % 2 == 0:
+									map_w += 1
+								if map_h % 2 == 0:
+									map_h += 1
+								maze = generate_maze(map_w, map_h)
+								# choose new exit farthest from start (1,1)
+								start_ix, start_iy = 1, 1
+								exit_x, exit_y = start_ix, start_iy
+								max_dist2 = -1
+								for y in range(map_h):
+									for x in range(map_w):
+										if maze[y][x] == 0 and not (x == start_ix and y == start_iy):
+											d2 = (x - start_ix) ** 2 + (y - start_iy) ** 2
+											if d2 > max_dist2:
+												max_dist2 = d2
+												exit_x, exit_y = x, y
+								# mark door cell as blocking (value 2)
+								try:
+									maze[exit_y][exit_x] = 2
+								except Exception:
+									pass
+
+								# Re-initialize Monster
+								if Monster:
+									monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+							except Exception:
+								# fallback: reuse existing maze if generation fails
+								maze = maze
+							# reset player, timers and state
 							px, py = 1.5, 1.5
 							pa = 0.0
 							start_time = pygame.time.get_ticks()
 							frame_count = 0
 							is_official = True
-							# clear any graffiti overlays so the official level walls are
-							# entirely the animated GIF (no text overlays)
+							# clear overlays and visited minimap
 							try:
 								graffiti_overlays.clear()
 							except Exception:
 								graffiti_overlays = {}
+							visited_cells = set()
+							visited_cells.add((int(px), int(py)))
+							door_open = False
 							in_end = False
 							break
 				# render end screen
@@ -901,6 +1224,58 @@ def main():
 				screen.blit(bg, (screen_w - bg_w - 8 * SCALE, 8 * SCALE))
 			except Exception:
 				pass
+		# apply global light/darkness overlay if available and then restore UI elements on top
+		try:
+			# create once and reuse
+			if 'light_system' not in locals() and LightSystem is not None:
+				# make near-player area brighter by lowering darkness slightly and increasing vignette strength
+				light_system = LightSystem(darkness=0.7, vignette=True, vignette_strength=0.75)
+			if LightSystem is not None and light_system is not None:
+				try:
+					# focus the vignette near the player's view center (slightly below center to favour floor)
+					light_system._focus_center = (screen_w // 2, int(screen_h * 0.55))
+				except Exception:
+					light_system._focus_center = None
+				try:
+					# light radius in pixels (how far player can see). scale with SCALE if desired.
+					light_system.light_radius = int(220 * SCALE)
+					# inner fraction: fraction of radius that's fully lit (larger -> bigger bright core)
+					light_system.light_inner_frac = 0.5
+				except Exception:
+					pass
+				light_system.apply(screen)
+			# restore minimap on top so it's not darkened by the overlay
+			if mm_surf is not None:
+				try:
+					screen.blit(mm_surf, mm_rect.topleft)
+				except Exception:
+					pass
+			# redraw objective UI (if present) so it remains readable
+			if not is_official:
+				try:
+					obj_font = get_handwritten_font(int(14 * SCALE), bold=True)
+					txt_obj = obj_font.render('ESC: Exit the maze', True, (255, 255, 255))
+					obj_x = mm_rect.left + (mm_rect.width - txt_obj.get_width()) // 2
+					obj_y = mm_rect.bottom + int(6 * SCALE)
+					if obj_y < 4 * SCALE:
+						obj_y = 4 * SCALE
+					screen.blit(txt_obj, (obj_x, obj_y))
+				except Exception:
+					pass
+			# ESC hint (re-draw on top)
+			try:
+				txt2 = esc_ui_font.render('× ESC', True, (255, 255, 255))
+				pad2 = 6 * SCALE
+				bg_w2 = txt2.get_width() + pad2 * 2
+				bg_h2 = txt2.get_height() + pad2 * 2
+				bg2 = pygame.Surface((bg_w2, bg_h2), pygame.SRCALPHA)
+				bg2.fill((0, 0, 0, 160))
+				bg2.blit(txt2, (pad2, pad2))
+				screen.blit(bg2, (screen_w - bg_w2 - 8 * SCALE, 8 * SCALE))
+			except Exception:
+				pass
+		except Exception:
+			pass
 		
 		# 渲染菜单或游戏画面
 		if game_state == 'menu' and menu_manager:
