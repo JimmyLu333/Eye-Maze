@@ -519,6 +519,8 @@ def main():
 			
 			if monster.trigger_scare:
 				# 触发恐怖画面
+				# 先渲染最后一帧（包含怪物贴脸）
+				# 这里我们简单地填充红色，实际应该是在渲染循环里处理
 				screen.fill((50, 0, 0)) # 暗红色背景
 				try:
 					font_scare = pygame.font.SysFont(None, int(100 * SCALE))
@@ -760,12 +762,21 @@ def main():
 
 		ray_angle = pa - half_fov
 		slice_w = int(screen_w / num_rays) + 1
+		z_buffer = [float('inf')] * screen_w # Initialize Z-Buffer
+
 		for r in range(num_rays):
 			angle = ray_angle + (r / num_rays) * fov
 			depth, hit, hx, hy, mpx, mpy, side = cast_ray(px, py, angle, maze, max_depth=max_depth)
 			# simple fish-eye correction already handled by perp dist in DDA; still apply cosine to be safe
 			depth *= math.cos(angle - pa)
 			if depth <= 0: depth = 0.0001
+			
+			# Fill Z-Buffer for this column
+			x_start = int(r * (screen_w / num_rays))
+			for ix in range(x_start, x_start + slice_w):
+				if 0 <= ix < screen_w:
+					z_buffer[ix] = depth
+
 			proj_height = min(int(wall_height / (depth + 0.0001) * 2), screen_h)
 			x = int(r * (screen_w / num_rays))
 
@@ -858,6 +869,101 @@ def main():
 				col = (color_val, color_val, color_val)
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
+		# --- Sprite Rendering (Monster) ---
+		if monster:
+			# 1. Calculate sprite position relative to camera
+			sprite_x = monster.x - px
+			sprite_y = monster.y - py
+
+			# 2. Transform sprite with the inverse camera matrix
+			# [ planeX   dirX ] -1                                       [ dirY      -dirX ]
+			# [               ]       =  1/(planeX*dirY-dirX*planeY) *   [                 ]
+			# [ planeY   dirY ]                                          [ -planeY  planeX ]
+
+			# We need camera plane and direction vectors.
+			# dirX = cos(pa), dirY = sin(pa)
+			# planeX = -sin(pa) * tan(half_fov), planeY = cos(pa) * tan(half_fov) (approx)
+			
+			# Let's use a simpler approach since we have pa (player angle)
+			# Rotate sprite position by -pa
+			inv_det = 1.0 # We can just rotate
+			
+			# Rotate the sprite position so that the camera direction is the X axis
+			# New X is forward distance, New Y is lateral distance
+			# rot_x = sprite_x * cos(-pa) - sprite_y * sin(-pa)
+			# rot_y = sprite_x * sin(-pa) + sprite_y * cos(-pa)
+			
+			# Actually, standard raycasting sprite math:
+			# transformX = invDet * (dirY * spriteX - dirX * spriteY)
+			# transformY = invDet * (-planeY * spriteX + planeX * spriteY)
+			
+			# Let's stick to the rotation method which is intuitive
+			# Forward distance (depth)
+			transform_z = sprite_x * math.cos(pa) + sprite_y * math.sin(pa)
+			# Lateral distance (left/right)
+			transform_x = -sprite_x * math.sin(pa) + sprite_y * math.cos(pa)
+
+			if transform_z > 0.1: # Only draw if in front of camera
+				# Project to screen X
+				# screen_x = (0.5 * screen_w) * (1 + transform_x / (transform_z * tan(half_fov)))
+				# Simplified:
+				sprite_screen_x = int((screen_w / 2) * (1 + transform_x / (transform_z * math.tan(half_fov))))
+				
+				# Calculate height of the sprite on screen
+				sprite_height = abs(int(screen_h / (transform_z))) # Basic scaling
+				# Calculate width of the sprite
+				sprite_width = abs(int(screen_h / (transform_z))) # Square sprite
+
+				sprite_top_y = int((screen_h - sprite_height) / 2)
+				
+				# Draw the sprite (Placeholder: Red Rectangle with Eyes)
+				# In a real scenario, we would iterate columns and check Z-buffer
+				
+				# Create a temporary surface for the monster if not loaded
+				if not hasattr(monster, 'texture'):
+					monster.texture = pygame.Surface((64, 64))
+					monster.texture.fill((255, 0, 0)) # Red body
+					pygame.draw.circle(monster.texture, (255, 255, 0), (20, 20), 8) # Left Eye
+					pygame.draw.circle(monster.texture, (255, 255, 0), (44, 20), 8) # Right Eye
+					pygame.draw.rect(monster.texture, (0, 0, 0), (16, 40, 32, 10)) # Mouth
+
+				# Scale texture to sprite size
+				if sprite_width > 0 and sprite_height > 0:
+					scaled_tex = pygame.transform.scale(monster.texture, (sprite_width, sprite_height))
+					
+					# Render column by column to respect Z-Buffer
+					start_x = int(sprite_screen_x - sprite_width / 2)
+					end_x = int(sprite_screen_x + sprite_width / 2)
+					
+					# Clip to screen boundaries
+					tex_start_x = 0
+					if start_x < 0:
+						tex_start_x = -start_x
+						start_x = 0
+					if end_x >= screen_w:
+						end_x = screen_w - 1
+						
+					for stripe in range(start_x, end_x):
+						# Check Z-Buffer
+						if transform_z < z_buffer[stripe]:
+							# Draw this column of the sprite
+							tex_x = int((stripe - (sprite_screen_x - sprite_width / 2)) * 64 / sprite_width)
+							# Simple blit of the column
+							# To optimize, we could blit the whole thing if we knew it wasn't occluded, 
+							# but column-based is correct for intersection.
+							# For Python/Pygame, blitting columns is slow. 
+							# Optimization: Check if the center is visible or just blit the whole thing if close?
+							# Let's stick to column blit for correctness.
+							try:
+								# Get column from scaled texture
+								# Actually, scaling the whole texture every frame is slow.
+								# Better: Scale once per frame (done above), then subsurface.
+								col_surf = scaled_tex.subsurface((stripe - start_x + tex_start_x, 0, 1, sprite_height))
+								screen.blit(col_surf, (stripe, sprite_top_y))
+							except Exception:
+								pass
+		# -------------------------------------
+
 		# Render a simple upright door (no texture) at the exit if it's closed and within view.
 		try:
 			if not door_open:
@@ -872,7 +978,7 @@ def main():
 				# determine occlusion: cast a ray toward the door and check for intervening walls
 				try:
 					ray_angle = math.atan2(rel_y, rel_x)
-					ray_depth, ray_hit, ray_hx, ray_hy, ray_mx, ray_my, ray_side = cast_ray(px, py, tray_angle, maze, max_depth=dist_primary + 0.5)
+					ray_depth, ray_hit, ray_hx, ray_hy, ray_mx, ray_my, ray_side = cast_ray(px, py, ray_angle, maze, max_depth=dist_primary + 0.5)
 				except Exception:
 					ray_depth, ray_hit, ray_mx, ray_my = None, False, None, None
 				wall_blocks = False

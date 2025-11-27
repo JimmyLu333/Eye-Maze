@@ -17,9 +17,9 @@ class Monster:
         # 属性
         self.base_detection_range = 4.0
         self.current_detection_range = self.base_detection_range
-        self.patrol_speed = 1.5
-        self.chase_speed = 2.8
-        self.attack_speed = 7.0
+        self.patrol_speed = 0.8  # 调慢巡逻速度
+        self.chase_speed = 1.2   # 调慢跟随速度
+        self.attack_speed = 4.0  # 稍微调慢突袭速度
         
         # 巡逻相关
         self.patrol_target = None
@@ -57,8 +57,8 @@ class Monster:
         if self.distance_to_player > self.current_detection_range:
             self.state = 'patrol'
             if not eye_open:
-                # 闭眼时扩大检测范围 (每秒扩大 1.5 单位)
-                self.current_detection_range += 1.5 * dt
+                # 闭眼时扩大检测范围 (每秒扩大 0.5 单位)
+                self.current_detection_range += 0.5 * dt
                 # print(f"[Monster] Range expanding: {self.current_detection_range:.2f}")
         
         # 2. 玩家在检测范围内
@@ -105,11 +105,16 @@ class Monster:
             speed = self.chase_speed
             target_x, target_y = player_pos
             
+            # 保持距离逻辑：如果距离玩家太近，就停止移动，让玩家能看到
+            keep_distance = 2.5
+            if self.distance_to_player < keep_distance:
+                speed = 0
+            
         elif self.state == 'attack':
             speed = self.attack_speed
             target_x, target_y = player_pos
             # 如果非常接近，触发恐怖画面
-            if self.distance_to_player < 0.8:
+            if self.distance_to_player < 0.5:
                 self.trigger_scare = True
 
         # --- 移动逻辑 (简单的碰撞检测) ---
