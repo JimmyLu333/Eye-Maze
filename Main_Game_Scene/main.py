@@ -317,6 +317,21 @@ def main():
 	except Exception:
 		graffiti_overlays = {}
 
+	# Door state: place a closed, collidable door at the exit cell.
+	# Use value 2 in the maze to denote a closed door (any non-zero value blocks movement).
+	door_open = False
+	try:
+		# mark door cell as '2' to act like a blocking tile until opened
+		maze[exit_y][exit_x] = 2
+	except Exception:
+		pass
+
+	# door world dimensions (in tile units)
+	DOOR_W = 0.8
+	DOOR_H = 1.8
+	SHOW_DOOR_DIST = 8.0
+	INTERACT_DIST = 1.6
+
 	# if no adjacent wall, don't place graffiti (could extend to floor later)
 
 	move_speed = 3.0 * SCALE
@@ -431,12 +446,17 @@ def main():
 		dy = math.sin(pa) * move_speed * dt
 		if keys[pygame.K_w]:
 			nx, ny = px + dx, py + dy
-			if maze[int(ny)][int(nx)] == 0:
+			cellx, celly = int(nx), int(ny)
+			# allow moving into the exit cell even if it's marked as a door (so touching it advances)
+			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 				px, py = nx, ny
 				is_moving = True
 		if keys[pygame.K_s]:
 			nx, ny = px - dx, py - dy
-			if maze[int(ny)][int(nx)] == 0:
+			cellx, celly = int(nx), int(ny)
+			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 				px, py = nx, ny
 				is_moving = True
 
@@ -641,7 +661,8 @@ def main():
 						pass
 				screen.blit(ceil_surf, (0, 0))
 			else:
-				pygame.draw.rect(screen, (100, 150, 200), (0, 0, screen_w, half_h))
+				# draw sky as solid black for lower GPU cost
+				pygame.draw.rect(screen, (0, 0, 0), (0, 0, screen_w, half_h))
 		else:
 			# fallback: tile existing textures or solid colors as before
 			if ceil_tex:
@@ -667,7 +688,8 @@ def main():
 						else:
 							screen.blit(scaled, (xx, yy))
 			else:
-				screen.fill((100, 150, 200))  # sky
+				# keep sky black (no ceiling texture) to minimize rendering cost
+				screen.fill((0, 0, 0))  # sky
 
 			if floor_tex:
 				# tile the floor texture across bottom half
@@ -794,6 +816,58 @@ def main():
 				col = (color_val, color_val, color_val)
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
+		# Render a simple upright door (no texture) at the exit if it's closed and within view.
+		try:
+			if not door_open:
+				dx_world = exit_x + 0.5
+				dy_world = exit_y + 0.5
+				rel_x = dx_world - px
+				rel_y = dy_world - py
+				dist_primary = math.hypot(rel_x, rel_y)
+				# camera-forward and right coordinates
+				cam_fwd = rel_x * math.cos(pa) + rel_y * math.sin(pa)
+				cam_right = -rel_x * math.sin(pa) + rel_y * math.cos(pa)
+				# determine occlusion: cast a ray toward the door and check for intervening walls
+				try:
+					ray_angle = math.atan2(rel_y, rel_x)
+					ray_depth, ray_hit, ray_hx, ray_hy, ray_mx, ray_my, ray_side = cast_ray(px, py, tray_angle, maze, max_depth=dist_primary + 0.5)
+				except Exception:
+					ray_depth, ray_hit, ray_mx, ray_my = None, False, None, None
+				wall_blocks = False
+				if ray_hit:
+					# if the ray hit a wall cell before reaching the door, treat as blocked
+					try:
+						if (ray_mx, ray_my) != (exit_x, exit_y):
+							wall_blocks = True
+						elif ray_depth is not None and ray_depth < dist_primary - 0.25:
+							wall_blocks = True
+					except Exception:
+						pass
+
+				# only render when in front of player, reasonably near, and not blocked by walls
+				if (not wall_blocks) and cam_fwd > 0.05 and dist_primary <= SHOW_DOOR_DIST:
+					# project to screen x
+					scale_x = (cam_right / (cam_fwd * math.tan(half_fov)))
+					screen_x = int(screen_w / 2 * (1 + scale_x))
+					# approximate vertical size (placeholders tuned to wall_height)
+					height_px = max(8, int((DOOR_H / cam_fwd) * wall_height * 0.9))
+					width_px = max(6, int((DOOR_W / cam_fwd) * wall_height * 0.45))
+					top = int(screen_h / 2 - height_px / 2)
+					left = int(screen_x - width_px / 2)
+					# draw simple frame and inner panel (center now pure black)
+					pygame.draw.rect(screen, (200, 200, 200), (left - 3, top - 3, width_px + 6, height_px + 6))
+					pygame.draw.rect(screen, (0, 0, 0), (left, top, width_px, height_px))
+					# small EXIT label above the door
+					try:
+						lbl_font = pygame.font.SysFont(None, max(12, int(14 * SCALE)))
+						exit_lbl = lbl_font.render('EXIT', True, (255, 220, 80))
+						screen.blit(exit_lbl, (screen_x - exit_lbl.get_width() // 2, top - exit_lbl.get_height() - 6))
+					except Exception:
+						pass
+					# no interaction prompt or E-to-open: touching (entering) the exit cell advances
+		except Exception:
+			pass
+
 		# mini-map (moved to maze.draw_minimap) — always draw in top-left
 		# reveal walls only locally around visited cells (radius=1)
 		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
@@ -858,19 +932,50 @@ def main():
 						mx, my = ev.pos
 						# check button click
 						if btn_rect.collidepoint(mx, my):
-							# start official level: copy current maze and reset player/time
-							maze = [row[:] for row in maze]
+							# start official level: generate a new maze (larger) and reset player/time
+							try:
+								# increase maze size for the next level (keep caps)
+								map_w = min(41, map_w + 4)
+								map_h = min(31, map_h + 2)
+								# ensure odd dimensions
+								if map_w % 2 == 0:
+									map_w += 1
+								if map_h % 2 == 0:
+									map_h += 1
+								maze = generate_maze(map_w, map_h)
+								# choose new exit farthest from start (1,1)
+								start_ix, start_iy = 1, 1
+								exit_x, exit_y = start_ix, start_iy
+								max_dist2 = -1
+								for y in range(map_h):
+									for x in range(map_w):
+										if maze[y][x] == 0 and not (x == start_ix and y == start_iy):
+											d2 = (x - start_ix) ** 2 + (y - start_iy) ** 2
+											if d2 > max_dist2:
+												max_dist2 = d2
+												exit_x, exit_y = x, y
+								# mark door cell as blocking (value 2)
+								try:
+									maze[exit_y][exit_x] = 2
+								except Exception:
+									pass
+							except Exception:
+								# fallback: reuse existing maze if generation fails
+								maze = maze
+							# reset player, timers and state
 							px, py = 1.5, 1.5
 							pa = 0.0
 							start_time = pygame.time.get_ticks()
 							frame_count = 0
 							is_official = True
-							# clear any graffiti overlays so the official level walls are
-							# entirely the animated GIF (no text overlays)
+							# clear overlays and visited minimap
 							try:
 								graffiti_overlays.clear()
 							except Exception:
 								graffiti_overlays = {}
+							visited_cells = set()
+							visited_cells.add((int(px), int(py)))
+							door_open = False
 							in_end = False
 							break
 				# render end screen
