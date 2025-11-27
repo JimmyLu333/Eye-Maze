@@ -889,19 +889,50 @@ def main():
 						mx, my = ev.pos
 						# check button click
 						if btn_rect.collidepoint(mx, my):
-							# start official level: copy current maze and reset player/time
-							maze = [row[:] for row in maze]
+							# start official level: generate a new maze (larger) and reset player/time
+							try:
+								# increase maze size for the next level (keep caps)
+								map_w = min(41, map_w + 4)
+								map_h = min(31, map_h + 2)
+								# ensure odd dimensions
+								if map_w % 2 == 0:
+									map_w += 1
+								if map_h % 2 == 0:
+									map_h += 1
+								maze = generate_maze(map_w, map_h)
+								# choose new exit farthest from start (1,1)
+								start_ix, start_iy = 1, 1
+								exit_x, exit_y = start_ix, start_iy
+								max_dist2 = -1
+								for y in range(map_h):
+									for x in range(map_w):
+										if maze[y][x] == 0 and not (x == start_ix and y == start_iy):
+											d2 = (x - start_ix) ** 2 + (y - start_iy) ** 2
+											if d2 > max_dist2:
+												max_dist2 = d2
+												exit_x, exit_y = x, y
+								# mark door cell as blocking (value 2)
+								try:
+									maze[exit_y][exit_x] = 2
+								except Exception:
+									pass
+							except Exception:
+								# fallback: reuse existing maze if generation fails
+								maze = maze
+							# reset player, timers and state
 							px, py = 1.5, 1.5
 							pa = 0.0
 							start_time = pygame.time.get_ticks()
 							frame_count = 0
 							is_official = True
-							# clear any graffiti overlays so the official level walls are
-							# entirely the animated GIF (no text overlays)
+							# clear overlays and visited minimap
 							try:
 								graffiti_overlays.clear()
 							except Exception:
 								graffiti_overlays = {}
+							visited_cells = set()
+							visited_cells.add((int(px), int(py)))
+							door_open = False
 							in_end = False
 							break
 				# render end screen
