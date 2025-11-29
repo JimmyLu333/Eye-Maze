@@ -623,6 +623,11 @@ def main():
 			
 			monster.update((px, py), pa, is_eye_open, dt)
 			
+			# 更新心跳声
+			if sound_manager:
+				is_chasing = monster.state == 'chase'
+				sound_manager.update_heartbeat(is_chasing)
+			
 			if monster.trigger_scare:
 				# 触发恐怖画面
 				# 先渲染最后一帧（包含怪物贴脸）

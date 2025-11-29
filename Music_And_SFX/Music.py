@@ -197,6 +197,61 @@ class BackgroundMusicManager:
         return False
 
 
+class HeartbeatManager:
+    """管理心跳音效"""
+    
+    def __init__(self, sound_file='heart_beat.mp3', volume=1.0):
+        """
+        初始化心跳声管理器
+        
+        Args:
+            sound_file: 心跳声音频文件名
+            volume: 音量 (0.0 到 1.0)
+        """
+        pygame.mixer.init()
+        
+        self.heartbeat_sound = None
+        self.is_playing = False
+        
+        # 尝试从多个路径加载音频文件
+        possible_paths = [
+            sound_file,  # 当前目录
+            os.path.join('..', sound_file),  # 上级目录
+            os.path.join(os.path.dirname(__file__), '..', sound_file),  # 相对于Music.py的上级目录
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', sound_file),  # 绝对路径
+        ]
+        
+        for path in possible_paths:
+            try:
+                self.heartbeat_sound = pygame.mixer.Sound(path)
+                self.heartbeat_sound.set_volume(volume)
+                print(f"✅ 成功加载心跳声: {path}")
+                break
+            except:
+                continue
+        if not self.heartbeat_sound:
+            print(f"⚠️ 警告：未找到心跳声音频文件 '{sound_file}'")
+    
+    def update(self, is_chasing):
+        """
+        更新心跳声状态
+        
+        Args:
+            is_chasing: 怪物是否正在追逐玩家
+        """
+        if not self.heartbeat_sound:
+            return
+        
+        if is_chasing:
+            if not self.is_playing:
+                self.heartbeat_sound.play(loops=-1)
+                self.is_playing = True
+        else:
+            if self.is_playing:
+                self.heartbeat_sound.stop()
+                self.is_playing = False
+
+
 class SoundManager:
     """游戏音效总管理器 - 统一管理所有音效"""
     
@@ -223,6 +278,12 @@ class SoundManager:
             volume=music_volume
         )
         
+        # 心跳声管理器
+        self.heartbeat_manager = HeartbeatManager(
+            sound_file='heart_beat.mp3',
+            volume=1.0
+        )
+        
         # 未来可以在这里添加更多音效，例如：
         # self.ambient_sound = None  # 环境音效
         # self.enemy_sound = None    # 敌人音效
@@ -231,6 +292,10 @@ class SoundManager:
     def update_footsteps(self, is_moving, dt):
         """更新脚步声（对外接口）"""
         self.footstep_manager.update(is_moving, dt)
+
+    def update_heartbeat(self, is_chasing):
+        """更新心跳声（对外接口）"""
+        self.heartbeat_manager.update(is_chasing)
     
     def set_footstep_volume(self, volume):
         """设置脚步声音量"""
