@@ -313,6 +313,11 @@ def main():
 	MOUSE_SENSITIVITY = 0.001 * SCALE	# radians per pixel (tweakable)
 	ROT_SMOOTHING = 10.0	# larger -> faster/snappier (try 8..20)
 
+	# temporary Alt-key state: holding left Alt will show the mouse (release grab)
+	_alt_mouse_shown = False
+	_alt_saved_grab = None
+	_alt_saved_visible = None
+
 	# minimap state: track visited integer cells (minimap shown in top-left)
 	visited_cells = set()
 	visited_cells.add((int(px), int(py)))
@@ -445,6 +450,36 @@ def main():
 					pygame.mouse.set_visible(not MOUSE_LOOK)
 				except Exception:
 					pass
+			# Hold Left-Alt to temporarily show the mouse (release grab while held)
+			if event.type == pygame.KEYDOWN and event.key == pygame.K_LALT:
+				try:
+					if not _alt_mouse_shown:
+						_alt_saved_grab = pygame.event.get_grab()
+						_alt_saved_visible = pygame.mouse.get_visible()
+						# release grab and show cursor while Alt is held
+						pygame.event.set_grab(False)
+						pygame.mouse.set_visible(True)
+						_alt_mouse_shown = True
+				except Exception:
+					_alt_mouse_shown = False
+					_alt_saved_grab = None
+					_alt_saved_visible = None
+			# Release Left-Alt: restore previous grab/visibility
+			if event.type == pygame.KEYUP and event.key == pygame.K_LALT:
+				try:
+					if _alt_mouse_shown:
+						# restore to saved state (typically driven by MOUSE_LOOK)
+						if _alt_saved_grab is not None:
+							pygame.event.set_grab(bool(_alt_saved_grab))
+						if _alt_saved_visible is not None:
+							pygame.mouse.set_visible(bool(_alt_saved_visible))
+					_alt_mouse_shown = False
+					_alt_saved_grab = None
+					_alt_saved_visible = None
+				except Exception:
+					_alt_mouse_shown = False
+					_alt_saved_grab = None
+					_alt_saved_visible = None
 			# Debug-key handling for DummyEye (only when no camera / using Dummy)
 			elif event.type == pygame.KEYDOWN:
 				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
