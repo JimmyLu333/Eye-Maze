@@ -160,8 +160,23 @@ class Monster:
             
         elif self.state == 'chase':
             speed = self.chase_speed
-            target_x, target_y = player_pos
-            self.path = [] # 追逐时清空巡逻路径
+            
+            # 智能寻路：如果隔着墙，使用 BFS 规划路径
+            mx, my = int(self.x), int(self.y)
+            px, py = int(player_pos[0]), int(player_pos[1])
+            
+            if mx == px and my == py:
+                # 在同一个格子，直接直线移动
+                target_x, target_y = player_pos
+            else:
+                # 不在同一个格子，寻找路径
+                path = self.find_path((self.x, self.y), player_pos)
+                if len(path) >= 2:
+                    # path[0] 是当前格子中心，path[1] 是下一个格子中心
+                    target_x, target_y = path[1]
+                else:
+                    # 寻路失败（可能不可达），尝试直线移动
+                    target_x, target_y = player_pos
             
             # 保持距离逻辑：如果距离玩家太近，就停止移动，让玩家能看到
             keep_distance = 2.5
@@ -170,8 +185,21 @@ class Monster:
             
         elif self.state == 'attack':
             speed = self.attack_speed
-            target_x, target_y = player_pos
-            self.path = [] # 攻击时清空巡逻路径
+            
+            # 攻击状态也使用智能寻路，避免卡墙
+            mx, my = int(self.x), int(self.y)
+            px, py = int(player_pos[0]), int(player_pos[1])
+            
+            if mx == px and my == py:
+                target_x, target_y = player_pos
+            else:
+                path = self.find_path((self.x, self.y), player_pos)
+                if len(path) >= 2:
+                    target_x, target_y = path[1]
+                else:
+                    target_x, target_y = player_pos
+
+            self.path = [] # 攻击时不保留巡逻路径
             # 如果非常接近，触发恐怖画面
             if self.distance_to_player < 0.5:
                 self.trigger_scare = True
