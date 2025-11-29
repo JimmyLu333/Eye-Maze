@@ -195,11 +195,11 @@ def main():
 	screen_w, screen_h = 960 * SCALE, 720 * SCALE
 	screen = pygame.display.set_mode((screen_w, screen_h))
 	pygame.display.set_caption("Eye Maze")
-	# ensure the mouse cursor is hidden and the mouse is grabbed at startup
-	# (this makes the cursor invisible immediately; pressing 'M' will still toggle mode)
+	# ensure the mouse cursor state is appropriate at startup
+	# Show the mouse in menu by default; entering the game will hide/grab it.
 	try:
-		pygame.event.set_grab(True)
-		pygame.mouse.set_visible(False)
+		pygame.event.set_grab(False)
+		pygame.mouse.set_visible(True)
 	except Exception:
 		pass
 	clock = pygame.time.Clock()
@@ -318,6 +318,17 @@ def main():
 	_alt_saved_grab = None
 	_alt_saved_visible = None
 
+	# apply initial mouse/grab state according to whether we're in menu or playing
+	try:
+		if game_state == 'menu':
+			pygame.event.set_grab(False)
+			pygame.mouse.set_visible(True)
+		else:
+			pygame.event.set_grab(MOUSE_LOOK)
+			pygame.mouse.set_visible(not MOUSE_LOOK)
+	except Exception:
+		pass
+
 	# minimap state: track visited integer cells (minimap shown in top-left)
 	visited_cells = set()
 	visited_cells.add((int(px), int(py)))
@@ -431,6 +442,12 @@ def main():
 				if action == 'start_game':
 					game_state = 'playing'
 					menu_manager.hide()
+					# entering the game: hide and (optionally) grab the mouse based on MOUSE_LOOK
+					try:
+						pygame.event.set_grab(MOUSE_LOOK)
+						pygame.mouse.set_visible(not MOUSE_LOOK)
+					except Exception:
+						pass
 					print("🎮 游戏开始！")
 					continue
 			
@@ -439,6 +456,12 @@ def main():
 				game_state = 'menu'
 				if menu_manager:
 					menu_manager.show_start_screen()
+				# when returning to menu, release grab and show the cursor
+				try:
+					pygame.event.set_grab(False)
+					pygame.mouse.set_visible(True)
+				except Exception:
+					pass
 				print("📋 返回菜单")
 				continue
 			# toggle mouse look
