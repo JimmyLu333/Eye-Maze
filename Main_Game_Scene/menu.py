@@ -53,6 +53,20 @@ class StartScreen:
                     crop_y = new_h - screen_height
                 self.background = scaled.subsurface((crop_x, crop_y, screen_width, screen_height)).copy()
                 
+                # 添加暗化效果以突出标题
+                dark_overlay = pygame.Surface((screen_width, screen_height))
+                dark_overlay.fill((0, 0, 0))
+                dark_overlay.set_alpha(100)  # 透明度（0-255，越大越暗）
+                self.background.blit(dark_overlay, (0, 0))
+                
+                # 添加上暗下亮的渐变效果
+                gradient_overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
+                for y in range(screen_height):
+                    # 从上到下，alpha值从较大（暗）到0（不影响）
+                    alpha = int(180 * (1 - y / screen_height))  # 上方最暗180，下方0（从120改为180）
+                    pygame.draw.line(gradient_overlay, (0, 0, 0, alpha), (0, y), (screen_width, y))
+                self.background.blit(gradient_overlay, (0, 0))
+                
                 print(f"✅ 成功加载开始界面背景: {path}")
                 break
             except Exception as e:
@@ -101,9 +115,27 @@ class StartScreen:
         button_height = 80
         button_x = (screen_width - button_width) // 2
         button_y = screen_height - 200
+        
+        # 加载start按钮图片
+        self.start_button_image = None
+        start_paths = [
+            'start4.png',
+            os.path.join('menu_art', 'start4.png'),
+            os.path.join(os.path.dirname(__file__), 'menu_art', 'start4.png'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'menu_art', 'start4.png'),
+        ]
+        
+        for path in start_paths:
+            try:
+                self.start_button_image = pygame.image.load(path).convert_alpha()
+                print(f"✅ 成功加载START按钮图片: {path}")
+                break
+            except:
+                continue
+        
         self.start_button = HorrorButton(
             button_x, button_y, button_width, button_height,
-            "START", self.button_font
+            "START", self.button_font, self.start_button_image
         )
         
         # 动画效果
@@ -185,15 +217,15 @@ class StartScreen:
                 import random
                 img_rect = scaled_image.get_rect(center=(center_x, center_y))
                 
-                # 分条纹绘制，每个条纹随机偏移
-                strip_height = 8  # 每个条纹的高度
+                # 分条纹绘制，每个条纹随机偏移（更细的条纹）
+                strip_height = 2  # 每个条纹的高度（从8改为2，更细）
                 img_height = scaled_image.get_height()
                 img_width = scaled_image.get_width()
                 
                 for y in range(0, img_height, strip_height):
                     h = min(strip_height, img_height - y)
                     # 随机水平偏移
-                    offset = random.randint(-15, 15)
+                    offset = random.randint(-12, 12)
                     
                     try:
                         strip = scaled_image.subsurface((0, y, img_width, h))
@@ -247,7 +279,7 @@ class StartScreen:
 class HorrorButton:
     """恐怖风格按钮"""
     
-    def __init__(self, x, y, width, height, text, font):
+    def __init__(self, x, y, width, height, text, font, image=None):
         """
         初始化按钮
         
@@ -256,10 +288,12 @@ class HorrorButton:
             width, height: 按钮尺寸
             text: 按钮文字
             font: 字体对象
+            image: 按钮图片（可选）
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
         self.font = font
+        self.image = image
         self.is_hovered = False
         self.hover_intensity = 0.0
         self.shake_offset_x = 0
@@ -267,44 +301,33 @@ class HorrorButton:
     
     def update(self, dt):
         """更新按钮动画"""
-        # 悬停时的抖动效果
-        if self.is_hovered:
-            self.hover_intensity = min(1.0, self.hover_intensity + dt * 3)
-            import random
-            self.shake_offset_x = random.randint(-2, 2) if random.random() > 0.7 else 0
-            self.shake_offset_y = random.randint(-2, 2) if random.random() > 0.7 else 0
-        else:
-            self.hover_intensity = max(0.0, self.hover_intensity - dt * 3)
-            self.shake_offset_x = 0
-            self.shake_offset_y = 0
+        # 不再有动画效果
+        pass
     
     def draw(self, screen):
         """绘制按钮"""
-        # 计算实际位置（带抖动）
-        draw_rect = self.rect.copy()
-        draw_rect.x += self.shake_offset_x
-        draw_rect.y += self.shake_offset_y
-        
-        # 背景（半透明黑色，悬停时更亮）
-        bg_alpha = int(150 + self.hover_intensity * 80)
-        bg_surface = pygame.Surface((draw_rect.width, draw_rect.height), pygame.SRCALPHA)
-        bg_color = (40, 40, 45, bg_alpha)
-        pygame.draw.rect(bg_surface, bg_color, bg_surface.get_rect())
-        screen.blit(bg_surface, draw_rect.topleft)
-        
-        # 边框（带血迹效果）
-        border_color = (100 + int(self.hover_intensity * 100), 50, 50)
-        pygame.draw.rect(screen, border_color, draw_rect, 3)
-        
-        # 文字（悬停时颜色变化）
-        text_color = (200, 200, 200) if not self.is_hovered else (255, 100, 100)
-        text_surf = self.font.render(self.text, True, text_color)
-        text_rect = text_surf.get_rect(center=draw_rect.center)
-        screen.blit(text_surf, text_rect)
-        
-        # 悬停时的血迹效果
-        if self.is_hovered and self.hover_intensity > 0.5:
-            self._draw_blood_splatter(screen, draw_rect)
+        # 如果有图片，直接绘制图片（不再有背景、边框、效果）
+        if self.image:
+            # 缩放图片到更小的尺寸
+            img_w, img_h = self.image.get_size()
+            # 保持宽高比，缩放到按钮宽度的50%（从80%改为50%）
+            base_scale = 0.5
+            # 悬停时稍微放大
+            if self.is_hovered:
+                base_scale = 0.55
+            
+            target_w = int(self.rect.width * base_scale)
+            scale = target_w / img_w
+            target_h = int(img_h * scale)
+            scaled_img = pygame.transform.smoothscale(self.image, (target_w, target_h))
+            
+            img_rect = scaled_img.get_rect(center=self.rect.center)
+            screen.blit(scaled_img, img_rect)
+        else:
+            # 备用：文字按钮
+            text_surf = self.font.render(self.text, True, (200, 200, 200))
+            text_rect = text_surf.get_rect(center=self.rect.center)
+            screen.blit(text_surf, text_rect)
     
     def _draw_blood_splatter(self, screen, rect):
         """在按钮边缘绘制血迹效果"""
