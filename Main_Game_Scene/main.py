@@ -428,8 +428,8 @@ def main():
 	while running:
 		dt = clock.tick(60) / 1000.0
 		
-		# 更新菜单动画
-		if game_state == 'menu' and menu_manager:
+		# 更新菜单动画（总是更新，包括游戏中的红色方块）
+		if menu_manager:
 			menu_manager.update(dt)
 		
 		for event in pygame.event.get():
@@ -437,33 +437,95 @@ def main():
 				running = False
 			
 			# 菜单事件处理
-			if game_state == 'menu' and menu_manager:
+			# 菜单事件处理（包括游戏中和菜单状态）
+			if menu_manager:
 				action = menu_manager.handle_event(event)
-				if action == 'start_game':
-					game_state = 'playing'
-					menu_manager.hide()
-					# entering the game: hide and (optionally) grab the mouse based on MOUSE_LOOK
+				if action == 'open_menu':
+					# 点击红色方块打开菜单
+					game_state = 'menu'
+					# 同步当前音量到菜单
+					if sound_manager:
+						current_volume = sound_manager.music_volume
+						menu_manager.set_volume(current_volume)
+					# 释放鼠标捕获，显示光标
 					try:
-						pygame.event.set_grab(MOUSE_LOOK)
-						pygame.mouse.set_visible(not MOUSE_LOOK)
+						pygame.event.set_grab(False)
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("⏸️ 打开菜单")
+					continue
+				elif action == 'start_game':
+					game_state = 'playing'
+					# 不隐藏菜单管理器，改为pause状态以显示红色方块
+					menu_manager.current_state = 'pause'
+					# 保持鼠标可见，方便点击方块
+					try:
+						pygame.mouse.set_visible(True)
 					except Exception:
 						pass
 					print("🎮 游戏开始！")
 					continue
+				elif action == 'resume':
+					game_state = 'playing'
+					# 不隐藏菜单管理器，只是改变状态
+					if menu_manager:
+						menu_manager.current_state = 'pause'  # 保持pause状态以显示红色方块
+					# 不立即恢复鼠标捕获，让菜单先收起
+					# 鼠标保持可见，以便点击方块
+					try:
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("▶️ 继续游戏")
+					continue
+				elif action == 'restart':
+					# 重新开始游戏 - 重置所有游戏状态
+					px, py = 1.5, 1.5
+					pa = 0.0
+					target_pa = 0.0
+					visited_cells.clear()
+					visited_cells.add((int(px), int(py)))
+					current_level = 0
+					maze = generate_maze(map_w, map_h)
+					# 重新计算出口位置
+					start_ix, start_iy = int(px), int(py)
+					exit_x, exit_y = start_ix, start_iy
+					max_dist2 = -1
+					for y in range(map_h):
+						for x in range(map_w):
+							if maze[y][x] == 0 and not (x == start_ix and y == start_iy):
+								d2 = (x - start_ix) ** 2 + (y - start_iy) ** 2
+								if d2 > max_dist2:
+									max_dist2 = d2
+									exit_x, exit_y = x, y
+					game_state = 'playing'
+					# 不隐藏菜单管理器，只是改变状态并关闭菜单
+					if menu_manager:
+						menu_manager.current_state = 'pause'  # 保持pause状态以显示红色方块
+						menu_manager.eye_menu.close()  # 收起菜单
+					# 不立即恢复鼠标捕获
+					try:
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("🔄 重新开始游戏")
+					continue
+				elif action == 'quit':
+					running = False
+					continue
+				elif action == 'volume_change':
+					# 实时更新音量
+					if sound_manager:
+						volume = menu_manager.get_volume()
+						sound_manager.set_music_volume(volume)
+				
+				# 持续更新音量（用于拖动滑块时）
+				if sound_manager and game_state == 'menu':
+					volume = menu_manager.get_volume()
+					sound_manager.set_music_volume(volume)
 			
-			# 游戏中按 ESC 返回菜单
-			elif game_state == 'playing' and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-				game_state = 'menu'
-				if menu_manager:
-					menu_manager.show_start_screen()
-				# when returning to menu, release grab and show the cursor
-				try:
-					pygame.event.set_grab(False)
-					pygame.mouse.set_visible(True)
-				except Exception:
-					pass
-				print("📋 返回菜单")
-				continue
+
 			# Group key-based events to avoid fall-through (so LALT doesn't trigger debug handlers)
 			if event.type == pygame.KEYDOWN:
 				# toggle mouse look
@@ -1343,8 +1405,8 @@ def main():
 		except Exception:
 			pass
 		
-		# 渲染菜单或游戏画面
-		if game_state == 'menu' and menu_manager:
+		# 渲染菜单（总是绘制，包括游戏中的红色方块）
+		if menu_manager:
 			menu_manager.draw(screen)
 		
 		pygame.display.flip()
