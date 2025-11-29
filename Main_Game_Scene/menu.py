@@ -45,9 +45,12 @@ class StartScreen:
                 # 缩放图片
                 scaled = pygame.transform.smoothscale(self.background, (new_w, new_h))
                 
-                # 裁剪到屏幕大小（居中裁剪）
+                # 裁剪到屏幕大小（居中裁剪，向上偏移50像素）
                 crop_x = (new_w - screen_width) // 2
-                crop_y = (new_h - screen_height) // 2
+                crop_y = (new_h - screen_height) // 2 + 50  # 向上偏移50像素（增加crop_y）
+                # 确保不超出范围
+                if crop_y + screen_height > new_h:
+                    crop_y = new_h - screen_height
                 self.background = scaled.subsurface((crop_x, crop_y, screen_width, screen_height)).copy()
                 
                 print(f"✅ 成功加载开始界面背景: {path}")
@@ -72,10 +75,10 @@ class StartScreen:
         for path in title_paths:
             try:
                 self.title_image = pygame.image.load(path).convert_alpha()
-                # 放大标题图片到原来的1.0倍
+                # 放大标题图片到原来的1.3倍
                 original_w, original_h = self.title_image.get_size()
-                new_w = int(original_w * 1.0)
-                new_h = int(original_h * 1.0)
+                new_w = int(original_w * 1.3)
+                new_h = int(original_h * 1.3)
                 self.title_image = pygame.transform.smoothscale(self.title_image, (new_w, new_h))
                 print(f"✅ 成功加载标题图片: {path}")
                 break
@@ -106,6 +109,10 @@ class StartScreen:
         # 动画效果
         self.title_pulse = 0.0
         self.blood_drip_offset = 0.0
+        self.glitch_time = 0.0
+        self.glitch_offset_x = 0
+        self.glitch_offset_y = 0
+        self.glitch_active = False
     
     def update(self, dt):
         """更新动画效果"""
@@ -116,6 +123,20 @@ class StartScreen:
         self.blood_drip_offset += dt * 50
         if self.blood_drip_offset > 20:
             self.blood_drip_offset = 0
+        
+        # 故障效果 - 随机触发
+        import random
+        self.glitch_time += dt
+        if self.glitch_time > 0.1:  # 每0.1秒检查一次
+            self.glitch_time = 0
+            if random.random() < 0.15:  # 15%概率触发故障
+                self.glitch_active = True
+                self.glitch_offset_x = random.randint(-8, 8)
+                self.glitch_offset_y = random.randint(-3, 3)
+            else:
+                self.glitch_active = False
+                self.glitch_offset_x = 0
+                self.glitch_offset_y = 0
         
         # 更新按钮
         self.start_button.update(dt)
@@ -155,9 +176,37 @@ class StartScreen:
             else:
                 scaled_image = self.title_image
             
-            # 居中绘制
-            img_rect = scaled_image.get_rect(center=(self.screen_width // 2, 140))
-            screen.blit(scaled_image, img_rect)
+            # 应用故障效果
+            center_x = self.screen_width // 2
+            center_y = 140
+            
+            if self.glitch_active:
+                # 横向闪回效果 - 分割成水平条纹
+                import random
+                img_rect = scaled_image.get_rect(center=(center_x, center_y))
+                
+                # 分条纹绘制，每个条纹随机偏移
+                strip_height = 8  # 每个条纹的高度
+                img_height = scaled_image.get_height()
+                img_width = scaled_image.get_width()
+                
+                for y in range(0, img_height, strip_height):
+                    h = min(strip_height, img_height - y)
+                    # 随机水平偏移
+                    offset = random.randint(-15, 15)
+                    
+                    try:
+                        strip = scaled_image.subsurface((0, y, img_width, h))
+                        strip_rect = strip.get_rect()
+                        strip_rect.x = img_rect.x + offset
+                        strip_rect.y = img_rect.y + y
+                        screen.blit(strip, strip_rect)
+                    except:
+                        pass
+            else:
+                # 正常绘制
+                img_rect = scaled_image.get_rect(center=(center_x, center_y))
+                screen.blit(scaled_image, img_rect)
         else:
             # 备用：使用文字标题
             title_text = "MAZE"
