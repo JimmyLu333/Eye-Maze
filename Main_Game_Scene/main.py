@@ -480,18 +480,18 @@ def main():
 		if game_state == 'playing':
 			keys = pygame.key.get_pressed()
 			# smooth rotation: interpolate current angle towards target angle
-		# normalize angles to shortest path
-		def _angle_diff(a, b):
-			# returns smallest difference to add to a to get to b
-			d = (b - a + math.pi) % (2 * math.pi) - math.pi
-			return d
-		# compute interpolation factor (exponential smoothing)
-		if ROT_SMOOTHING > 0:
-			alpha = 1.0 - math.exp(-ROT_SMOOTHING * dt)
-			pa += _angle_diff(pa, target_pa) * alpha
-		else:
-			pa = target_pa
-		# also support direct key-state quit in case KEYDOWN events are missed
+			# normalize angles to shortest path
+			def _angle_diff(a, b):
+				# returns smallest difference to add to a to get to b
+				d = (b - a + math.pi) % (2 * math.pi) - math.pi
+				return d
+			# compute interpolation factor (exponential smoothing)
+			if ROT_SMOOTHING > 0:
+				alpha = 1.0 - math.exp(-ROT_SMOOTHING * dt)
+				pa += _angle_diff(pa, target_pa) * alpha
+			else:
+				pa = target_pa
+			# also support direct key-state quit in case KEYDOWN events are missed
 			try:
 				if keys[pygame.K_ESCAPE]:
 					running = False
@@ -500,40 +500,44 @@ def main():
 				# if something odd happens with key state, fall back to event handling
 				pass
 			# update target angle from keyboard
-		if keys[pygame.K_a]:
+			if keys[pygame.K_a]:
 				target_pa -= rot_speed * dt
 			if keys[pygame.K_d]:
 				target_pa += rot_speed * dt
-			
+
 			# 检测玩家移动
 			is_moving = False
 			dx = math.cos(pa) * move_speed * dt
 			dy = math.sin(pa) * move_speed * dt
+			# move forward
 			if keys[pygame.K_w]:
 				nx, ny = px + dx, py + dy
 				cellx, celly = int(nx), int(ny)
-			# allow moving into the exit cell even if it's marked as a door (so touching it advances)
-			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
-				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
+				# allow moving into the exit cell even if it's marked as a door (so touching it advances)
+				if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+					(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 					px, py = nx, ny
 					is_moving = True
+			# move backward
 			if keys[pygame.K_s]:
 				nx, ny = px - dx, py - dy
 				cellx, celly = int(nx), int(ny)
-			if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
-				(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
+				if (0 <= celly < len(maze) and 0 <= cellx < len(maze[0]) and
+					(maze[celly][cellx] == 0 or (cellx == exit_x and celly == exit_y))):
 					px, py = nx, ny
 					is_moving = True
 
 			# 更新脚步声
 			if sound_manager:
-				sound_manager.update_footsteps(is_moving, dt)		# record visited cells when player enters a new integer cell
-		try:
-			cur_cell = (int(px), int(py))
-			if cur_cell not in visited_cells:
-				visited_cells.add(cur_cell)
-		except Exception:
-			pass
+				sound_manager.update_footsteps(is_moving, dt)
+
+			# record visited cells when player enters a new integer cell
+			try:
+				cur_cell = (int(px), int(py))
+				if cur_cell not in visited_cells:
+					visited_cells.add(cur_cell)
+			except Exception:
+				pass
 
 		# camera frame + eye state
 		if cap is not None:
