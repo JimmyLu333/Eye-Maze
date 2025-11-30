@@ -1205,12 +1205,12 @@ def main():
 		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
 
 		# Draw Monster on Minimap
-		if monster and mm_rect:
-			mm_scale = 8 * SCALE
-			mx_px = mm_rect.left + int(monster.x * mm_scale)
-			my_px = mm_rect.top + int(monster.y * mm_scale)
-			# Draw monster as a purple dot
-			pygame.draw.circle(screen, (128, 0, 128), (mx_px, my_px), int(3 * SCALE))
+		# if monster and mm_rect:
+		# 	mm_scale = 8 * SCALE
+		# 	mx_px = mm_rect.left + int(monster.x * mm_scale)
+		# 	my_px = mm_rect.top + int(monster.y * mm_scale)
+		# 	# Draw monster as a purple dot
+		# 	pygame.draw.circle(screen, (128, 0, 128), (mx_px, my_px), int(3 * SCALE))
 		# copy the minimap area so we can re-draw it after any global overlays (keeps it unaffected)
 		mm_surf = None
 		try:
