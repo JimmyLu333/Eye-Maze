@@ -1240,6 +1240,12 @@ def main():
 			time_f = get_handwritten_font(36 * SCALE, bold=True)
 			button_f = get_handwritten_font(30 * SCALE)
 			in_end = True
+			# Ensure cursor is shown and mouse grab released on the end/Next Level screen
+			try:
+				pygame.event.set_grab(False)
+				pygame.mouse.set_visible(True)
+			except Exception:
+				pass
 			while in_end:
 				for ev in pygame.event.get():
 					if ev.type == pygame.QUIT:
@@ -1345,6 +1351,16 @@ def main():
 							visited_cells = set()
 							visited_cells.add((int(px), int(py)))
 							door_open = False
+							# restore mouse/grab state for gameplay according to MOUSE_LOOK
+							try:
+								pygame.event.set_grab(MOUSE_LOOK)
+								pygame.mouse.set_visible(not MOUSE_LOOK)
+							except Exception:
+								pass
+							# clear any Alt-temporary state
+							_alt_mouse_shown = False
+							_alt_saved_grab = None
+							_alt_saved_visible = None
 							in_end = False
 							break
 				# render end screen
