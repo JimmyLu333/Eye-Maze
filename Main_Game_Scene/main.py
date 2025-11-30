@@ -1183,7 +1183,18 @@ def main():
 			msg_f = get_handwritten_font(24 * SCALE)
 			time_f = get_handwritten_font(36 * SCALE, bold=True)
 			button_f = get_handwritten_font(30 * SCALE)
+			# ensure mouse is visible when showing the Next Level / end screen
+			try:
+				pygame.event.set_grab(False)
+				pygame.mouse.set_visible(True)
+			except Exception:
+				pass
 			in_end = True
+			# debug: print current mouse/grab state when entering end-screen
+			try:
+				print(f"[DEBUG] Entering end-screen: grab={pygame.event.get_grab()}, visible={pygame.mouse.get_visible()}")
+			except Exception:
+				print("[DEBUG] Entering end-screen: could not read mouse state")
 			while in_end:
 				for ev in pygame.event.get():
 					if ev.type == pygame.QUIT:
@@ -1247,6 +1258,12 @@ def main():
 							visited_cells = set()
 							visited_cells.add((int(px), int(py)))
 							door_open = False
+							# new level is starting: restore gameplay mouse/grab state
+							try:
+								pygame.event.set_grab(MOUSE_LOOK)
+								pygame.mouse.set_visible(not MOUSE_LOOK)
+							except Exception:
+								pass
 							in_end = False
 							break
 				# render end screen
