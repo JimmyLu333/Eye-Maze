@@ -161,6 +161,14 @@ def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
 
 def main():
 	pygame.init()
+	# Ensure working directory is the repository root so relative resource
+	# paths resolve the same regardless of how the process was started
+	try:
+		repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+		os.chdir(repo_root)
+		print(f"[debug] changed CWD to repo root: {repo_root}")
+	except Exception:
+		pass
 	
 	# 游戏状态控制
 	game_state = 'menu'  # 'menu' 或 'playing'

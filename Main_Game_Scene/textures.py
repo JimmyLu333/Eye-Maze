@@ -33,6 +33,8 @@ def load_textures(tex_dir, overlay_brightness=1.0):
     textures = []
     floor_tex = None
     ceil_tex = None
+    floor_src = None
+    ceil_src = None
     overlay_candidate = None
     overlay_image = None
     official_anim_frames = None
@@ -50,11 +52,25 @@ def load_textures(tex_dir, overlay_brightness=1.0):
     except Exception:
         manifest_list = None
 
-    # Resolve tex_dir for both dev and bundled runtimes
+    # Debug: report manifest usage and resolved manifest path
     try:
-        tex_dir = resource_path(tex_dir)
+        if manifest_list:
+            print(f"[debug] Using texture manifest: {manifest_path} (entries={len(manifest_list)})")
+        else:
+            print(f"[debug] No texture manifest found at: {manifest_path}")
     except Exception:
         pass
+
+    # Resolve tex_dir for both dev and bundled runtimes
+    try:
+        resolved_tex_dir = resource_path(tex_dir)
+        tex_dir = resolved_tex_dir
+    except Exception:
+        resolved_tex_dir = tex_dir
+        try:
+            tex_dir = resource_path(tex_dir)
+        except Exception:
+            pass
 
     if not os.path.isdir(tex_dir) and not manifest_list:
         return {
@@ -77,6 +93,22 @@ def load_textures(tex_dir, overlay_brightness=1.0):
                 p = resource_path(rel)
             except Exception:
                 p = rel
+            # Fallback: if manifest entry didn't resolve, try basename in the resolved tex_dir
+            if not os.path.exists(p):
+                try:
+                    fallback = os.path.join(resolved_tex_dir, os.path.basename(rel))
+                    if os.path.exists(fallback):
+                        try:
+                            print(f"[debug] manifest fallback used: {fallback}")
+                        except Exception:
+                            pass
+                        p = fallback
+                except Exception:
+                    pass
+            try:
+                print(f"[debug] manifest entry resolved: {rel} -> {p}")
+            except Exception:
+                pass
             if not os.path.exists(p):
                 print(f"Warning: manifest resource not found: {rel} (resolved {p})")
                 continue
@@ -85,6 +117,10 @@ def load_textures(tex_dir, overlay_brightness=1.0):
                 try:
                     raw = pygame.image.load(p)
                     fn = os.path.basename(p)
+                    try:
+                        print(f"[debug] loaded image (manifest): {p} -> fn={fn} size={raw.get_size()} flags={raw.get_flags()}")
+                    except Exception:
+                        pass
                     if fn.lower().endswith('.png'):
                         surf = raw.convert_alpha()
                     else:
@@ -107,10 +143,32 @@ def load_textures(tex_dir, overlay_brightness=1.0):
                         overlay_image = surf
                         continue
 
+                    # For floor/ceiling textures we prefer an opaque surface so
+                    # any PNG alpha does not make the rendered floor appear
+                    # transparent in bundled runtimes. Composite alpha onto
+                    # an opaque surface and convert to a non-alpha format.
                     if 'floor' in fn.lower():
-                        floor_tex = surf
+                        floor_src = p
+                        try:
+                            if surf.get_flags() & pygame.SRCALPHA:
+                                tmp = pygame.Surface(surf.get_size())
+                                tmp.blit(surf, (0, 0))
+                                floor_tex = tmp.convert()
+                            else:
+                                floor_tex = surf.convert()
+                        except Exception:
+                            floor_tex = surf
                     elif 'ceiling' in fn.lower() or 'ceil' in fn.lower():
-                        ceil_tex = surf
+                        ceil_src = p
+                        try:
+                            if surf.get_flags() & pygame.SRCALPHA:
+                                tmp2 = pygame.Surface(surf.get_size())
+                                tmp2.blit(surf, (0, 0))
+                                ceil_tex = tmp2.convert()
+                            else:
+                                ceil_tex = surf.convert()
+                        except Exception:
+                            ceil_tex = surf
                     else:
                         wall_candidates.append((fn, surf))
                 except Exception as e:
@@ -124,8 +182,16 @@ def load_textures(tex_dir, overlay_brightness=1.0):
         for fn in files:
             path = os.path.join(tex_dir, fn)
             try:
+                print(f"[debug] scanning texture file: {path}")
+            except Exception:
+                pass
+            try:
                 raw = pygame.image.load(path)
                 lname = fn.lower()
+                try:
+                    print(f"[debug] loaded image (scan): {path} -> fn={fn} size={raw.get_size()} flags={raw.get_flags()}")
+                except Exception:
+                    pass
                 if fn.lower().endswith('.png'):
                     surf = raw.convert_alpha()
                 else:
@@ -148,10 +214,29 @@ def load_textures(tex_dir, overlay_brightness=1.0):
                     overlay_image = surf
                     continue
 
+                # For floor/ceiling textures, ensure they are opaque surfaces
                 if 'floor' in lname:
-                    floor_tex = surf
+                    floor_src = path
+                    try:
+                        if surf.get_flags() & pygame.SRCALPHA:
+                            tmp = pygame.Surface(surf.get_size())
+                            tmp.blit(surf, (0, 0))
+                            floor_tex = tmp.convert()
+                        else:
+                            floor_tex = surf.convert()
+                    except Exception:
+                        floor_tex = surf
                 elif 'ceiling' in lname or 'ceil' in lname:
-                    ceil_tex = surf
+                    ceil_src = path
+                    try:
+                        if surf.get_flags() & pygame.SRCALPHA:
+                            tmp2 = pygame.Surface(surf.get_size())
+                            tmp2.blit(surf, (0, 0))
+                            ceil_tex = tmp2.convert()
+                        else:
+                            ceil_tex = surf.convert()
+                    except Exception:
+                        ceil_tex = surf
                 else:
                     wall_candidates.append((fn, surf))
             except Exception as e:
@@ -174,6 +259,10 @@ def load_textures(tex_dir, overlay_brightness=1.0):
         try:
             # resolve path (useful for bundled runtimes)
             gif_path = resource_path(gif_path)
+            try:
+                print(f"[debug] found GIF animation at: {gif_path}")
+            except Exception:
+                pass
             from PIL import Image
             im = Image.open(gif_path)
             frames = []
@@ -204,9 +293,25 @@ def load_textures(tex_dir, overlay_brightness=1.0):
                 print(f"Warning: failed to load animated GIF {gif_path}: {e}")
 
     if floor_tex:
-        print('Loaded floor texture')
+        try:
+            # Final normalization: ensure floor texture is an opaque, display-format surface
+            if floor_tex.get_flags() & pygame.SRCALPHA:
+                tmpf = pygame.Surface(floor_tex.get_size())
+                tmpf.blit(floor_tex, (0, 0))
+                floor_tex = tmpf.convert()
+            else:
+                floor_tex = floor_tex.convert()
+            print('Loaded floor texture')
+            print(f"[debug] floor_tex flags={floor_tex.get_flags()} size={floor_tex.get_size()}")
+        except Exception as e:
+            print(f"[debug] floor_tex normalization failed: {e}")
     if ceil_tex:
         print('Loaded ceiling texture')
+        try:
+            print(f"[debug] floor source: {floor_src}")
+            print(f"[debug] ceil source: {ceil_src}")
+        except Exception:
+            pass
 
     return {
         'textures': textures,
