@@ -1,5 +1,6 @@
 import pygame
 import os
+from utils import resource_path
 import math
 
 
@@ -27,7 +28,10 @@ class StartScreen:
         
         for path in bg_paths:
             try:
-                self.background = pygame.image.load(path)
+                rp = resource_path(path)
+                if not os.path.exists(rp):
+                    raise FileNotFoundError(rp)
+                self.background = pygame.image.load(rp)
                 # 保持宽高比缩放并裁剪
                 img_w, img_h = self.background.get_size()
                 screen_ratio = screen_width / screen_height
@@ -88,7 +92,10 @@ class StartScreen:
         
         for path in title_paths:
             try:
-                self.title_image = pygame.image.load(path).convert_alpha()
+                rp = resource_path(path)
+                if not os.path.exists(rp):
+                    raise FileNotFoundError(rp)
+                self.title_image = pygame.image.load(rp).convert_alpha()
                 # 放大标题图片到原来的1.3倍
                 original_w, original_h = self.title_image.get_size()
                 new_w = int(original_w * 1.3)
@@ -127,7 +134,10 @@ class StartScreen:
         
         for path in start_paths:
             try:
-                self.start_button_image = pygame.image.load(path).convert_alpha()
+                rp = resource_path(path)
+                if not os.path.exists(rp):
+                    raise FileNotFoundError(rp)
+                self.start_button_image = pygame.image.load(rp).convert_alpha()
                 print(f"✅ 成功加载START按钮图片: {path}")
                 break
             except:
@@ -149,7 +159,10 @@ class StartScreen:
         
         for path in exit_paths:
             try:
-                self.exit_button_image = pygame.image.load(path).convert_alpha()
+                rp = resource_path(path)
+                if not os.path.exists(rp):
+                    raise FileNotFoundError(rp)
+                self.exit_button_image = pygame.image.load(rp).convert_alpha()
                 print(f"✅ 成功加载EXIT按钮图片: {path}")
                 break
             except:
@@ -446,8 +459,9 @@ class EyeMenu:
             menu_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'menu1.png')
             if not os.path.exists(menu_img_path):
                 menu_img_path = os.path.join('menu_art', 'menu1.png')
-            if os.path.exists(menu_img_path):
-                self.menu_image = pygame.image.load(menu_img_path).convert_alpha()
+            rp = resource_path(menu_img_path)
+            if os.path.exists(rp):
+                self.menu_image = pygame.image.load(rp).convert_alpha()
                 # 缩放图片以适应标签大小
                 img_height = int(self.tab_height * 0.6)  # 图片高度为标签的60%
                 img_width = int(self.menu_image.get_width() * (img_height / self.menu_image.get_height()))
@@ -469,7 +483,10 @@ class EyeMenu:
         ]
         for path in menu_select_paths:
             try:
-                loaded_img = pygame.image.load(path)
+                rp = resource_path(path)
+                if not os.path.exists(rp):
+                    raise FileNotFoundError(rp)
+                loaded_img = pygame.image.load(rp)
                 # 转换为带alpha通道的格式
                 self.menu_select_image = pygame.Surface((self.tab_width, self.tab_height), pygame.SRCALPHA)
                 # 缩放并绘制到新surface上
@@ -488,8 +505,9 @@ class EyeMenu:
             paused_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'paused.png')
             if not os.path.exists(paused_img_path):
                 paused_img_path = os.path.join('menu_art', 'paused.png')
-            if os.path.exists(paused_img_path):
-                self.paused_image = pygame.image.load(paused_img_path).convert_alpha()
+            rp = resource_path(paused_img_path)
+            if os.path.exists(rp):
+                self.paused_image = pygame.image.load(rp).convert_alpha()
                 # 缩放图片以适应菜单宽度
                 img_width = int(self.menu_width * 0.45)  # 图片宽度为菜单的45%（从60%调小）
                 img_height = int(self.paused_image.get_height() * (img_width / self.paused_image.get_width()))
@@ -503,8 +521,9 @@ class EyeMenu:
             volume_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'volume.png')
             if not os.path.exists(volume_img_path):
                 volume_img_path = os.path.join('menu_art', 'volume.png')
-            if os.path.exists(volume_img_path):
-                self.volume_image = pygame.image.load(volume_img_path).convert_alpha()
+            rp = resource_path(volume_img_path)
+            if os.path.exists(rp):
+                self.volume_image = pygame.image.load(rp).convert_alpha()
                 # 缩放图片
                 img_height = 20  # 固定高度
                 img_width = int(self.volume_image.get_width() * (img_height / self.volume_image.get_height()))
@@ -518,8 +537,9 @@ class EyeMenu:
             resume_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'resume.png')
             if not os.path.exists(resume_img_path):
                 resume_img_path = os.path.join('menu_art', 'resume.png')
-            if os.path.exists(resume_img_path):
-                self.resume_image = pygame.image.load(resume_img_path).convert_alpha()
+            rp = resource_path(resume_img_path)
+            if os.path.exists(rp):
+                self.resume_image = pygame.image.load(rp).convert_alpha()
                 # 缩放图片以适应按钮宽度
                 img_width = int(250 * 0.35)  # 按钮宽度的35%（从50%调小）
                 img_height = int(self.resume_image.get_height() * (img_width / self.resume_image.get_width()))
@@ -533,8 +553,9 @@ class EyeMenu:
             restart_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'restart.png')
             if not os.path.exists(restart_img_path):
                 restart_img_path = os.path.join('menu_art', 'restart.png')
-            if os.path.exists(restart_img_path):
-                self.restart_image = pygame.image.load(restart_img_path).convert_alpha()
+            rp = resource_path(restart_img_path)
+            if os.path.exists(rp):
+                self.restart_image = pygame.image.load(rp).convert_alpha()
                 # 缩放图片以适应按钮宽度
                 img_width = int(250 * 0.35)  # 与RESUME保持一致
                 img_height = int(self.restart_image.get_height() * (img_width / self.restart_image.get_width()))
@@ -548,8 +569,9 @@ class EyeMenu:
             quit_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'exit.png')
             if not os.path.exists(quit_img_path):
                 quit_img_path = os.path.join('menu_art', 'exit.png')
-            if os.path.exists(quit_img_path):
-                self.quit_image = pygame.image.load(quit_img_path).convert_alpha()
+            rp = resource_path(quit_img_path)
+            if os.path.exists(rp):
+                self.quit_image = pygame.image.load(rp).convert_alpha()
                 # 缩放图片以适应按钮宽度
                 img_width = int(250 * 0.25)  # 按钮宽度的25%（从35%调小）
                 img_height = int(self.quit_image.get_height() * (img_width / self.quit_image.get_width()))
@@ -563,9 +585,10 @@ class EyeMenu:
             bg_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'menubackground3.png')
             if not os.path.exists(bg_img_path):
                 bg_img_path = os.path.join('menu_art', 'menubackground3.png')
-            if os.path.exists(bg_img_path):
+            rp = resource_path(bg_img_path)
+            if os.path.exists(rp):
                 # PNG格式支持透明通道，直接加载
-                self.menu_background = pygame.image.load(bg_img_path).convert_alpha()
+                self.menu_background = pygame.image.load(rp).convert_alpha()
                 # 缩放到菜单尺寸
                 self.menu_background = pygame.transform.scale(self.menu_background, (self.menu_width, self.menu_height))
         except Exception as e:

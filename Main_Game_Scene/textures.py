@@ -1,6 +1,7 @@
 import os
 import pygame
 import random
+from utils import resource_path
 
 def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
     try:
@@ -35,6 +36,12 @@ def load_textures(tex_dir, overlay_brightness=1.0):
     overlay_image = None
     official_anim_frames = None
     official_anim_durations = None
+
+    # Resolve tex_dir for both dev and bundled runtimes
+    try:
+        tex_dir = resource_path(tex_dir)
+    except Exception:
+        pass
 
     if not os.path.isdir(tex_dir):
         return {
@@ -94,10 +101,15 @@ def load_textures(tex_dir, overlay_brightness=1.0):
         print(f"Loaded {len(textures)} wall texture(s) from {tex_dir}")
 
     # animated GIF handling: prefer .gif in the same dir
-    gif_files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith('.gif')]
+    try:
+        gif_files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith('.gif')]
+    except Exception:
+        gif_files = []
     if gif_files:
         gif_path = os.path.join(tex_dir, gif_files[0])
         try:
+            # resolve path (useful for bundled runtimes)
+            gif_path = resource_path(gif_path)
             from PIL import Image
             im = Image.open(gif_path)
             frames = []

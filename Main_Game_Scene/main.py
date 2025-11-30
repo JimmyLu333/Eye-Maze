@@ -242,7 +242,10 @@ def main():
 		# fallback: try importing as a local module
 		import textures as textures_mod
 
-	tex_dir = os.path.join(os.path.dirname(__file__), 'textures')
+	from utils import resource_path
+
+	# Resolve texture directory so it works both in development and bundled builds
+	tex_dir = resource_path(os.path.join('Main_Game_Scene', 'textures'))
 	tex_res = textures_mod.load_textures(tex_dir, overlay_brightness=OVERLAY_BRIGHTNESS)
 	textures = tex_res.get('textures', [])
 	floor_tex = tex_res.get('floor_tex')

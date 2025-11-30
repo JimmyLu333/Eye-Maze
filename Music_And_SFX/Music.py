@@ -1,5 +1,6 @@
 import pygame
 import os
+from utils import resource_path
 
 
 class FootstepManager:
@@ -28,14 +29,23 @@ class FootstepManager:
             os.path.join(os.path.dirname(__file__), '..', sound_file),  # 相对于Music.py的上级目录
             os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', sound_file),  # 绝对路径
         ]
-        
+
         for path in possible_paths:
             try:
-                self.footstep_sound = pygame.mixer.Sound(path)
+                rp = resource_path(path)
+            except Exception:
+                rp = path
+            # 尝试用解析后的路径加载（如果存在）
+            try:
+                if os.path.exists(rp):
+                    self.footstep_sound = pygame.mixer.Sound(rp)
+                else:
+                    # 最后尝试原始路径（pygame 支持某些相对查找）
+                    self.footstep_sound = pygame.mixer.Sound(path)
                 self.footstep_sound.set_volume(volume)
-                print(f"✅ 成功加载脚步声: {path}")
+                print(f"✅ 成功加载脚步声: {rp}")
                 break
-            except:
+            except Exception:
                 continue
         if not self.footstep_sound:
             print(f"⚠️ 警告：未找到脚步声音频文件 '{sound_file}'")
@@ -107,15 +117,22 @@ class BackgroundMusicManager:
             os.path.join(os.path.dirname(__file__), '..', music_file),  # 相对于Music.py的上级目录
             os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', music_file),  # 绝对路径
         ]
-        
+
         for path in possible_paths:
             try:
-                pygame.mixer.music.load(path)
+                rp = resource_path(path)
+            except Exception:
+                rp = path
+            try:
+                if os.path.exists(rp):
+                    pygame.mixer.music.load(rp)
+                else:
+                    pygame.mixer.music.load(path)
                 pygame.mixer.music.set_volume(volume)
                 self.is_loaded = True
-                print(f"✅ 成功加载背景音乐: {path}")
+                print(f"✅ 成功加载背景音乐: {rp}")
                 break
-            except Exception as e:
+            except Exception:
                 continue
         
         if not self.is_loaded:
@@ -220,14 +237,21 @@ class HeartbeatManager:
             os.path.join(os.path.dirname(__file__), '..', sound_file),  # 相对于Music.py的上级目录
             os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', sound_file),  # 绝对路径
         ]
-        
+
         for path in possible_paths:
             try:
-                self.heartbeat_sound = pygame.mixer.Sound(path)
+                rp = resource_path(path)
+            except Exception:
+                rp = path
+            try:
+                if os.path.exists(rp):
+                    self.heartbeat_sound = pygame.mixer.Sound(rp)
+                else:
+                    self.heartbeat_sound = pygame.mixer.Sound(path)
                 self.heartbeat_sound.set_volume(volume)
-                print(f"✅ 成功加载心跳声: {path}")
+                print(f"✅ 成功加载心跳声: {rp}")
                 break
-            except:
+            except Exception:
                 continue
         if not self.heartbeat_sound:
             print(f"⚠️ 警告：未找到心跳声音频文件 '{sound_file}'")
