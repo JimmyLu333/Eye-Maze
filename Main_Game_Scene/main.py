@@ -204,11 +204,27 @@ def main():
 		pass
 	clock = pygame.time.Clock()
 	
-	# 初始化菜单管理器
+	# 初始化声音管理器（在菜单之前初始化）
+	sound_manager = None
+	if SoundManager:
+		try:
+			sound_manager = SoundManager(
+				music_file='background_music.mp3',
+				music_volume=0.1
+			)
+			print("✅ 声音系统初始化成功")
+			
+			# 播放背景音乐（无限循环，2秒淡入）
+			sound_manager.play_music(loops=-1, fade_ms=2000)
+			
+		except Exception as e:
+			print(f"⚠️ 声音系统初始化失败: {e}")
+	
+	# 初始化菜单管理器（传入sound_manager）
 	menu_manager = None
 	if MenuManager:
 		try:
-			menu_manager = MenuManager(screen_w, screen_h)
+			menu_manager = MenuManager(screen_w, screen_h, sound_manager=sound_manager)
 			print("✅ 菜单系统初始化成功")
 		except Exception as e:
 			print(f"⚠️ 菜单系统初始化失败: {e}")
@@ -285,22 +301,6 @@ def main():
 	else:
 		eye_mech = EyeCapture(ear_threshold=args.ear_threshold, closed_frames=args.closed_frames, cooldown=args.cooldown, blackout_time=args.blackout_time)
 		print('Using EyeCapture for blink detection')
-
-	# 初始化声音管理器
-	sound_manager = None
-	if SoundManager:
-		try:
-			sound_manager = SoundManager(
-				music_file='background_music.mp3',
-				music_volume=0.1
-			)
-			print("✅ 声音系统初始化成功")
-			
-			# 播放背景音乐（无限循环，2秒淡入）
-			sound_manager.play_music(loops=-1, fade_ms=2000)
-			
-		except Exception as e:
-			print(f"⚠️ 声音系统初始化失败: {e}")
 
 	# player (initial position)
 	px, py = 1.5, 1.5
@@ -428,8 +428,8 @@ def main():
 	while running:
 		dt = clock.tick(60) / 1000.0
 		
-		# 更新菜单动画
-		if game_state == 'menu' and menu_manager:
+		# 更新菜单动画（总是更新，包括游戏中的红色方块）
+		if menu_manager:
 			menu_manager.update(dt)
 		
 		for event in pygame.event.get():
@@ -437,94 +437,164 @@ def main():
 				running = False
 			
 			# 菜单事件处理
-			if game_state == 'menu' and menu_manager:
+			# 菜单事件处理（包括游戏中和菜单状态）
+			if menu_manager:
 				action = menu_manager.handle_event(event)
-				if action == 'start_game':
+				if action == 'open_menu':
+					# 点击红色方块打开菜单
+					game_state = 'menu'
+					# 同步当前音量到菜单
+					if sound_manager:
+						current_volume = sound_manager.music_volume
+						menu_manager.set_volume(current_volume)
+					# 释放鼠标捕获，显示光标
+					try:
+						pygame.event.set_grab(False)
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("⏸️ 打开菜单")
+					continue
+				elif action == 'start_game':
 					game_state = 'playing'
-					menu_manager.hide()
-					# entering the game: hide and (optionally) grab the mouse based on MOUSE_LOOK
+					# 不隐藏菜单管理器，改为pause状态以显示红色方块
+					menu_manager.current_state = 'pause'
+					# 保持鼠标可见，方便点击方块
+					try:
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("🎮 游戏开始！")
+					continue
+				elif action == 'exit':
+					# 退出游戏
+					print("👋 退出游戏")
+					running = False
+					continue
+				elif action == 'resume':
+					game_state = 'playing'
+					# 关闭菜单
+					if menu_manager:
+						menu_manager.eye_menu.close()
+					# 鼠标保持可见，以便点击方块
+					try:
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("▶️ 继续游戏")
+					continue
+				elif action == 'restart':
+					# 重新开始游戏 - 重置所有游戏状态
+					px, py = 1.5, 1.5
+					pa = 0.0
+					target_pa = 0.0
+					visited_cells.clear()
+					visited_cells.add((int(px), int(py)))
+					current_level = 0
+					maze = generate_maze(map_w, map_h)
+					# 重新计算出口位置
+					start_ix, start_iy = int(px), int(py)
+					exit_x, exit_y = start_ix, start_iy
+					max_dist2 = -1
+					for y in range(map_h):
+						for x in range(map_w):
+							if maze[y][x] == 0 and not (x == start_ix and y == start_iy):
+								d2 = (x - start_ix) ** 2 + (y - start_iy) ** 2
+								if d2 > max_dist2:
+									max_dist2 = d2
+									exit_x, exit_y = x, y
+					game_state = 'playing'
+					# 不隐藏菜单管理器，只是改变状态并关闭菜单
+					if menu_manager:
+						menu_manager.current_state = 'pause'  # 保持pause状态以显示红色方块
+						menu_manager.eye_menu.close()  # 收起菜单
+					# 不立即恢复鼠标捕获
+					try:
+						pygame.mouse.set_visible(True)
+					except Exception:
+						pass
+					print("🔄 重新开始游戏")
+					continue
+				elif action == 'quit':
+					running = False
+					continue
+				elif action == 'volume_change':
+					# 实时更新音量
+					if sound_manager:
+						volume = menu_manager.get_volume()
+						sound_manager.set_music_volume(volume)
+				
+				# 持续更新音量（用于拖动滑块时）
+				if sound_manager and game_state == 'menu':
+					volume = menu_manager.get_volume()
+					sound_manager.set_music_volume(volume)
+			
+
+			# Group key-based events to avoid fall-through (so LALT doesn't trigger debug handlers)
+			if event.type == pygame.KEYDOWN:
+				# toggle mouse look
+				if event.key == pygame.K_m:
+					MOUSE_LOOK = not MOUSE_LOOK
+					# when enabling mouse look, capture the mouse and hide cursor
 					try:
 						pygame.event.set_grab(MOUSE_LOOK)
 						pygame.mouse.set_visible(not MOUSE_LOOK)
 					except Exception:
 						pass
-					print("🎮 游戏开始！")
-					continue
-			
-			# 游戏中按 ESC 返回菜单
-			elif game_state == 'playing' and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-				game_state = 'menu'
-				if menu_manager:
-					menu_manager.show_start_screen()
-				# when returning to menu, release grab and show the cursor
-				try:
-					pygame.event.set_grab(False)
-					pygame.mouse.set_visible(True)
-				except Exception:
-					pass
-				print("📋 返回菜单")
-				continue
-			# toggle mouse look
-			if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
-				MOUSE_LOOK = not MOUSE_LOOK
-				# when enabling mouse look, capture the mouse and hide cursor
-				try:
-					pygame.event.set_grab(MOUSE_LOOK)
-					pygame.mouse.set_visible(not MOUSE_LOOK)
-				except Exception:
-					pass
-			# Hold Left-Alt to temporarily show the mouse (release grab while held)
-			if event.type == pygame.KEYDOWN and event.key == pygame.K_LALT:
-				try:
-					if not _alt_mouse_shown:
-						_alt_saved_grab = pygame.event.get_grab()
-						_alt_saved_visible = pygame.mouse.get_visible()
-						# release grab and show cursor while Alt is held
-						pygame.event.set_grab(False)
-						pygame.mouse.set_visible(True)
-						_alt_mouse_shown = True
-				except Exception:
-					_alt_mouse_shown = False
-					_alt_saved_grab = None
-					_alt_saved_visible = None
-			# Release Left-Alt: restore previous grab/visibility
-			if event.type == pygame.KEYUP and event.key == pygame.K_LALT:
-				try:
-					if _alt_mouse_shown:
-						# restore to saved state (typically driven by MOUSE_LOOK)
-						if _alt_saved_grab is not None:
-							pygame.event.set_grab(bool(_alt_saved_grab))
-						if _alt_saved_visible is not None:
-							pygame.mouse.set_visible(bool(_alt_saved_visible))
-					_alt_mouse_shown = False
-					_alt_saved_grab = None
-					_alt_saved_visible = None
-				except Exception:
-					_alt_mouse_shown = False
-					_alt_saved_grab = None
-					_alt_saved_visible = None
-			# Debug-key handling for DummyEye (only when no camera / using Dummy)
-			elif event.type == pygame.KEYDOWN:
-				if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
-					# E: 模拟眨眼触发黑屏
-					if event.key == pygame.K_e:
-						try:
-							eye_mech.blackout_frames = eye_mech.BLACKOUT_DURATION
-						except Exception:
-							eye_mech.blackout_frames = int(args.blackout_time * 60)
-						# debug trace for key press
-						eye_mech.last_action = f'E pressed @ {pygame.time.get_ticks()}'
-						print('[DEBUG] Simulated blink: blackout_frames set to', eye_mech.blackout_frames)
-					# R: 切换 enemy 标志
-					elif event.key == pygame.K_r:
-						eye_mech.enemy = not getattr(eye_mech, 'enemy', False)
-						eye_mech.last_action = f'R pressed @ {pygame.time.get_ticks()}'
-						print('[DEBUG] Enemy toggled ->', eye_mech.enemy)
-					# I: 切换说明显示
-					elif event.key == pygame.K_i:
-						eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
-					eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
-					print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
+				# Hold Left-Alt to temporarily show the mouse (release grab while held)
+				elif event.key == pygame.K_LALT:
+					try:
+						if not _alt_mouse_shown:
+							_alt_saved_grab = pygame.event.get_grab()
+							_alt_saved_visible = pygame.mouse.get_visible()
+							# release grab and show cursor while Alt is held
+							pygame.event.set_grab(False)
+							pygame.mouse.set_visible(True)
+							_alt_mouse_shown = True
+					except Exception:
+						_alt_mouse_shown = False
+						_alt_saved_grab = None
+						_alt_saved_visible = None
+				# Debug-key handling for DummyEye (only when no camera / using Dummy)
+				else:
+					if (args.no_camera or EyeCapture is None) and hasattr(eye_mech, 'blackout_frames'):
+						# E: 模拟眨眼触发黑屏
+						if event.key == pygame.K_e:
+							try:
+								eye_mech.blackout_frames = eye_mech.BLACKOUT_DURATION
+							except Exception:
+								eye_mech.blackout_frames = int(args.blackout_time * 60)
+							# debug trace for key press
+							eye_mech.last_action = f'E pressed @ {pygame.time.get_ticks()}'
+							print('[DEBUG] Simulated blink: blackout_frames set to', eye_mech.blackout_frames)
+						# R: 切换 enemy 标志
+						elif event.key == pygame.K_r:
+							eye_mech.enemy = not getattr(eye_mech, 'enemy', False)
+							eye_mech.last_action = f'R pressed @ {pygame.time.get_ticks()}'
+							print('[DEBUG] Enemy toggled ->', eye_mech.enemy)
+						# I: 切换说明显示
+						elif event.key == pygame.K_i:
+							eye_mech.show_instructions = not getattr(eye_mech, 'show_instructions', True)
+							eye_mech.last_action = f'I pressed @ {pygame.time.get_ticks()}'
+							print('[DEBUG] Instructions toggled ->', eye_mech.show_instructions)
+			# KEYUP handling
+			elif event.type == pygame.KEYUP:
+				# Release Left-Alt: restore previous grab/visibility
+				if event.key == pygame.K_LALT:
+					try:
+						if _alt_mouse_shown:
+							# restore to saved state (typically driven by MOUSE_LOOK)
+							if _alt_saved_grab is not None:
+								pygame.event.set_grab(bool(_alt_saved_grab))
+							if _alt_saved_visible is not None:
+								pygame.mouse.set_visible(bool(_alt_saved_visible))
+						_alt_mouse_shown = False
+						_alt_saved_grab = None
+						_alt_saved_visible = None
+					except Exception:
+						_alt_mouse_shown = False
+						_alt_saved_grab = None
+						_alt_saved_visible = None
 			# mouse motion for mouse-look
 			elif event.type == pygame.MOUSEMOTION and MOUSE_LOOK:
 				# relative mouse movement controls yaw
@@ -1361,8 +1431,8 @@ def main():
 		except Exception:
 			pass
 		
-		# 渲染菜单或游戏画面
-		if game_state == 'menu' and menu_manager:
+		# 渲染菜单（总是绘制，包括游戏中的红色方块）
+		if menu_manager:
 			menu_manager.draw(screen)
 		
 		pygame.display.flip()

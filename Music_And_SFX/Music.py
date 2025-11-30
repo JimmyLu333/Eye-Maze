@@ -265,6 +265,9 @@ class SoundManager:
         """
         pygame.mixer.init()
         
+        # 保存当前音量
+        self.music_volume = music_volume
+        
         # 脚步声管理器
         self.footstep_manager = FootstepManager(
             sound_file='footsteps.wav',
@@ -336,11 +339,12 @@ class SoundManager:
     
     def set_music_volume(self, volume):
         """设置背景音乐音量 (0.0 到 1.0)"""
+        self.music_volume = volume
         self.music_manager.set_volume(volume)
     
     def get_music_volume(self):
         """获取背景音乐音量"""
-        return self.music_manager.get_volume()
+        return self.music_volume
     
     def is_music_playing(self):
         """检查背景音乐是否正在播放"""
