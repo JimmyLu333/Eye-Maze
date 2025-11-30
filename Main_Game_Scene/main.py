@@ -1179,6 +1179,12 @@ def main():
 			time_f = get_handwritten_font(36 * SCALE, bold=True)
 			button_f = get_handwritten_font(30 * SCALE)
 			in_end = True
+			# ensure the mouse is available for UI interaction on the end screen
+			try:
+				pygame.event.set_grab(False)
+				pygame.mouse.set_visible(True)
+			except Exception:
+				pass
 			while in_end:
 				for ev in pygame.event.get():
 					if ev.type == pygame.QUIT:
@@ -1270,6 +1276,12 @@ def main():
 				screen.blit(bt, (btn_x + btn_w // 2 - bt.get_width() // 2, btn_y + btn_h // 2 - bt.get_height() // 2))
 				pygame.display.flip()
 				clock.tick(30)
+			# restore mouse/grab state now that end screen closed (return to gameplay)
+			try:
+				pygame.event.set_grab(MOUSE_LOOK)
+				pygame.mouse.set_visible(not MOUSE_LOOK)
+			except Exception:
+				pass
 
 			frame_count += 1
 			# draw persistent ESC hint in top-right so players know they can quit anytime
