@@ -1297,9 +1297,27 @@ def main():
 								except Exception:
 									pass
 
+								# Find monster spawn near center
+								mx, my = exit_x, exit_y
+								min_dist_to_center = float('inf')
+								cx, cy = map_w // 2, map_h // 2
+								
+								for y in range(map_h):
+									for x in range(map_w):
+										if maze[y][x] == 0:
+											# Distance to center
+											d_center = (x - cx) ** 2 + (y - cy) ** 2
+											# Distance to player start (1,1) to avoid instant kill
+											d_player = (x - 1) ** 2 + (y - 1) ** 2
+											
+											if d_center < min_dist_to_center and d_player > 25:
+												min_dist_to_center = d_center
+												mx, my = x, y
+
 								# Re-initialize Monster
 								if Monster:
-									monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+									monster = Monster((mx + 0.5, my + 0.5), maze)
+									print(f"DEBUG: Monster spawned at ({mx}, {my})")
 							except Exception:
 								# fallback: reuse existing maze if generation fails
 								maze = maze
