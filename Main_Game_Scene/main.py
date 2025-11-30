@@ -1068,9 +1068,9 @@ def main():
 				if ray_hit:
 					# if the ray hit a wall cell before reaching the door, treat as blocked
 					try:
-						if (ray_mx, ray_my) != (exit_x, exit_y):
-							wall_blocks = True
-						elif ray_depth is not None and ray_depth < dist_primary - 0.25:
+						# Since cast_ray ignores the door (value 2), it will hit the wall behind it.
+						# We only care if the wall is CLOSER than the door.
+						if ray_depth is not None and ray_depth < dist_primary - 0.25:
 							wall_blocks = True
 					except Exception:
 						pass
