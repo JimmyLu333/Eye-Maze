@@ -483,6 +483,20 @@ class EyeMenu:
         except Exception as e:
             print(f"加载QUIT图片失败: {e}")
         
+        # 加载菜单背景素材
+        self.menu_background = None
+        try:
+            bg_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'menubackground3.png')
+            if not os.path.exists(bg_img_path):
+                bg_img_path = os.path.join('menu_art', 'menubackground3.png')
+            if os.path.exists(bg_img_path):
+                # PNG格式支持透明通道，直接加载
+                self.menu_background = pygame.image.load(bg_img_path).convert_alpha()
+                # 缩放到菜单尺寸
+                self.menu_background = pygame.transform.scale(self.menu_background, (self.menu_width, self.menu_height))
+        except Exception as e:
+            print(f"加载菜单背景图片失败: {e}")
+        
         # 字体
         try:
             self.title_font = pygame.font.Font(None, 48)
@@ -649,13 +663,18 @@ class EyeMenu:
         # 创建菜单表面
         menu_surface = pygame.Surface((current_width, current_height), pygame.SRCALPHA)
         
-        # 绘制灰色半透明背景
-        bg_color = (128, 128, 128, 150)  # 灰色，透明度150（从200提高透明度）
-        menu_surface.fill(bg_color)
-        
-        # 绘制白色边框
-        border_color = (255, 255, 255)
-        pygame.draw.rect(menu_surface, border_color, menu_surface.get_rect(), 2)  # 移除圆角
+        # 使用背景图片或灰色半透明背景
+        if self.menu_background and progress > 0.3:
+            # 缩放背景图片以匹配当前菜单尺寸
+            scaled_bg = pygame.transform.scale(self.menu_background, (current_width, current_height))
+            # 设置透明度（降低到150，让背景更透明）
+            bg_alpha = int(150 * min(1.0, (progress - 0.3) / 0.7))
+            scaled_bg.set_alpha(bg_alpha)
+            menu_surface.blit(scaled_bg, (0, 0))
+        else:
+            # 展开初期使用灰色半透明背景
+            bg_color = (128, 128, 128, 150)
+            menu_surface.fill(bg_color)
         
         # 菜单内容（展开超过60%时显示）
         if progress > 0.6:
@@ -775,8 +794,8 @@ class EyeMenu:
             btn_rect = btn_surf.get_rect()
             # 灰色半透明背景
             pygame.draw.rect(btn_surf, (128, 128, 128, alpha), btn_rect)
-            # 白色边框（移除圆角）
-            pygame.draw.rect(btn_surf, (255, 255, 255, alpha), btn_rect, 1)
+            # 白色边框（更细）
+            pygame.draw.rect(btn_surf, (255, 255, 255, int(alpha * 0.6)), btn_rect, 1)
             
             # 按钮文字或图片
             image_to_use = None
