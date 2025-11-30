@@ -1,6 +1,7 @@
 import os
 import pygame
 import random
+import json
 from utils import resource_path
 
 def _apply_blood_overlay(surf, droplets=6, alpha=80, seed=None):
@@ -37,13 +38,25 @@ def load_textures(tex_dir, overlay_brightness=1.0):
     official_anim_frames = None
     official_anim_durations = None
 
+    # Load optional manifest for exact resource list
+    manifest_path = resource_path(os.path.join('resources', 'texture_manifest.json'))
+    manifest_list = None
+    try:
+        if os.path.exists(manifest_path):
+            with open(manifest_path, 'r', encoding='utf-8') as mf:
+                data = json.load(mf)
+                if isinstance(data, dict):
+                    manifest_list = data.get('textures')
+    except Exception:
+        manifest_list = None
+
     # Resolve tex_dir for both dev and bundled runtimes
     try:
         tex_dir = resource_path(tex_dir)
     except Exception:
         pass
 
-    if not os.path.isdir(tex_dir):
+    if not os.path.isdir(tex_dir) and not manifest_list:
         return {
             'textures': textures,
             'floor_tex': floor_tex,
@@ -54,44 +67,95 @@ def load_textures(tex_dir, overlay_brightness=1.0):
             'official_anim_durations': official_anim_durations,
         }
 
-    files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-    files.sort(key=lambda n: (0 if 'eyes' in n.lower() else (1 if 'eye' in n.lower() else 2), n.lower()))
     wall_candidates = []
-    for fn in files:
-        path = os.path.join(tex_dir, fn)
-        try:
-            raw = pygame.image.load(path)
-            lname = fn.lower()
-            if fn.lower().endswith('.png'):
-                surf = raw.convert_alpha()
-            else:
-                surf = raw.convert()
-
+    # If manifest provided, load files listed there (in order). Skip non-image entries.
+    gif_manifest = []
+    if manifest_list:
+        for rel in manifest_list:
+            lname = rel.lower()
             try:
-                if 'eyes' in lname:
-                    EYES_DARKEN = 0.35
-                    v = max(0, min(255, int(255 * EYES_DARKEN)))
-                    dark = pygame.Surface(surf.get_size(), pygame.SRCALPHA).convert_alpha()
-                    dark.fill((v, v, v, 255))
-                    try:
-                        surf.blit(dark, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                    except Exception:
-                        surf.blit(dark, (0, 0))
+                p = resource_path(rel)
             except Exception:
-                pass
-
-            if any(k in lname for k in ('trust', 'text', 'graff', 'overlay')):
-                overlay_image = surf
+                p = rel
+            if not os.path.exists(p):
+                print(f"Warning: manifest resource not found: {rel} (resolved {p})")
                 continue
+            # Image files
+            if lname.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                try:
+                    raw = pygame.image.load(p)
+                    fn = os.path.basename(p)
+                    if fn.lower().endswith('.png'):
+                        surf = raw.convert_alpha()
+                    else:
+                        surf = raw.convert()
 
-            if 'floor' in lname:
-                floor_tex = surf
-            elif 'ceiling' in lname or 'ceil' in lname:
-                ceil_tex = surf
-            else:
-                wall_candidates.append((fn, surf))
-        except Exception as e:
-            print(f"Warning: failed loading texture {fn}: {e}")
+                    try:
+                        if 'eyes' in fn.lower():
+                            EYES_DARKEN = 0.35
+                            v = max(0, min(255, int(255 * EYES_DARKEN)))
+                            dark = pygame.Surface(surf.get_size(), pygame.SRCALPHA).convert_alpha()
+                            dark.fill((v, v, v, 255))
+                            try:
+                                surf.blit(dark, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                            except Exception:
+                                surf.blit(dark, (0, 0))
+                    except Exception:
+                        pass
+
+                    if any(k in fn.lower() for k in ('trust', 'text', 'graff', 'overlay')):
+                        overlay_image = surf
+                        continue
+
+                    if 'floor' in fn.lower():
+                        floor_tex = surf
+                    elif 'ceiling' in fn.lower() or 'ceil' in fn.lower():
+                        ceil_tex = surf
+                    else:
+                        wall_candidates.append((fn, surf))
+                except Exception as e:
+                    print(f"Warning: failed loading texture {rel}: {e}")
+            elif lname.endswith('.gif'):
+                gif_manifest.append(rel)
+
+    else:
+        files = [fn for fn in os.listdir(tex_dir) if fn.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+        files.sort(key=lambda n: (0 if 'eyes' in n.lower() else (1 if 'eye' in n.lower() else 2), n.lower()))
+        for fn in files:
+            path = os.path.join(tex_dir, fn)
+            try:
+                raw = pygame.image.load(path)
+                lname = fn.lower()
+                if fn.lower().endswith('.png'):
+                    surf = raw.convert_alpha()
+                else:
+                    surf = raw.convert()
+
+                try:
+                    if 'eyes' in lname:
+                        EYES_DARKEN = 0.35
+                        v = max(0, min(255, int(255 * EYES_DARKEN)))
+                        dark = pygame.Surface(surf.get_size(), pygame.SRCALPHA).convert_alpha()
+                        dark.fill((v, v, v, 255))
+                        try:
+                            surf.blit(dark, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                        except Exception:
+                            surf.blit(dark, (0, 0))
+                except Exception:
+                    pass
+
+                if any(k in lname for k in ('trust', 'text', 'graff', 'overlay')):
+                    overlay_image = surf
+                    continue
+
+                if 'floor' in lname:
+                    floor_tex = surf
+                elif 'ceiling' in lname or 'ceil' in lname:
+                    ceil_tex = surf
+                else:
+                    wall_candidates.append((fn, surf))
+            except Exception as e:
+                print(f"Warning: failed loading texture {fn}: {e}")
 
     wall_candidates.sort(key=lambda t: (0 if 'eyes' in t[0].lower() else (1 if 'eye' in t[0].lower() else 2), t[0].lower()))
     textures = [t[1] for t in wall_candidates]

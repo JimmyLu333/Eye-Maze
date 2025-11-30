@@ -24,6 +24,7 @@ class FootstepManager:
         
         # 尝试从多个路径加载音频文件
         possible_paths = [
+            os.path.join('Music_And_SFX', sound_file),  # packaged location
             sound_file,  # 当前目录
             os.path.join('..', sound_file),  # 上级目录
             os.path.join(os.path.dirname(__file__), '..', sound_file),  # 相对于Music.py的上级目录
@@ -112,6 +113,7 @@ class BackgroundMusicManager:
         
         # 尝试从多个路径加载音乐文件
         possible_paths = [
+            os.path.join('Music_And_SFX', music_file),  # packaged location
             music_file,  # 当前目录
             os.path.join('..', music_file),  # 上级目录
             os.path.join(os.path.dirname(__file__), '..', music_file),  # 相对于Music.py的上级目录
@@ -232,6 +234,7 @@ class HeartbeatManager:
         
         # 尝试从多个路径加载音频文件
         possible_paths = [
+            os.path.join('Music_And_SFX', sound_file),  # packaged location
             sound_file,  # 当前目录
             os.path.join('..', sound_file),  # 上级目录
             os.path.join(os.path.dirname(__file__), '..', sound_file),  # 相对于Music.py的上级目录
