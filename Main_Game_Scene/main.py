@@ -395,12 +395,13 @@ def main():
 
 	# 初始化 Monster
 	monster = None
-	if Monster:
-		# 将怪物放置在出口位置，或者离玩家较远的位置
-		monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
-		print(f"✅ Monster initialized at ({exit_x + 0.5}, {exit_y + 0.5})")
-	else:
-		print("⚠️ Warning: Monster class not imported, monster disabled.")
+	# 第一关是教学关卡，不生成怪物
+	# if Monster:
+	# 	# 将怪物放置在出口位置，或者离玩家较远的位置
+	# 	monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+	# 	print(f"✅ Monster initialized at ({exit_x + 0.5}, {exit_y + 0.5})")
+	# else:
+	# 	print("⚠️ Warning: Monster class not imported, monster disabled.")
 
 	# main loop
 	running = True
@@ -1233,9 +1234,6 @@ def main():
 			except Exception:
 				pass
 
-		# debug: print integer player cell and exit cell on first frame
-		if frame_count == 0:
-			print(f"DEBUG: Player int cell: ({int(px)}, {int(py)}), Exit cell: ({exit_x}, {exit_y})")
 
 		# check win condition: player reached exit cell
 		if int(px) == exit_x and int(py) == exit_y:
@@ -1302,7 +1300,6 @@ def main():
 								# Re-initialize Monster
 								if Monster:
 									monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
-									print("✅ Level 2 Monster initialized with optimized pathfinding")
 							except Exception:
 								# fallback: reuse existing maze if generation fails
 								maze = maze
