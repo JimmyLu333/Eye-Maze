@@ -518,7 +518,24 @@ def main():
 					print("🔄 重新开始游戏")
 					continue
 				elif action == 'quit':
-					running = False
+					# 从游戏内菜单退出：返回开始界面
+					if game_state == 'menu':
+						game_state = 'start'
+						# 重置菜单状态
+						if menu_manager:
+							menu_manager.current_state = 'start'
+							menu_manager.eye_menu.close()
+						# 重新播放背景音乐
+						if sound_manager:
+							try:
+								sound_manager.stop_music(fade_ms=0)
+								sound_manager.play_music(loops=-1, fade_ms=500)
+							except Exception as e:
+								print(f"重启音乐失败: {e}")
+						print("🔙 返回开始界面")
+					else:
+						# 其他情况退出游戏
+						running = False
 					continue
 				elif action == 'volume_change':
 					# 实时更新音量
