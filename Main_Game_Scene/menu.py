@@ -110,11 +110,11 @@ class StartScreen:
             self.title_font = pygame.font.SysFont('Arial', 120, bold=True)
             self.button_font = pygame.font.SysFont('Arial', 48)
         
-        # 开始按钮
-        button_width = 300
-        button_height = 80
+        # 开始按钮（缩小尺寸）
+        button_width = 250  # 从300缩小到25px
+        button_height = 65  # 从80缩小到15px
         button_x = (screen_width - button_width) // 2
-        button_y = screen_height - 200
+        button_y = screen_height - 180  # 向下移动（从-200改为-180）
         
         # 加载start按钮图片
         self.start_button_image = None
@@ -138,6 +138,30 @@ class StartScreen:
             "START", self.button_font, self.start_button_image
         )
         
+        # 加载exit按钮图片
+        self.exit_button_image = None
+        exit_paths = [
+            'exit3.png',
+            os.path.join('menu_art', 'exit3.png'),
+            os.path.join(os.path.dirname(__file__), 'menu_art', 'exit3.png'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'menu_art', 'exit3.png'),
+        ]
+        
+        for path in exit_paths:
+            try:
+                self.exit_button_image = pygame.image.load(path).convert_alpha()
+                print(f"✅ 成功加载EXIT按钮图片: {path}")
+                break
+            except:
+                continue
+        
+        # Exit按钮（在start按钮下方）
+        exit_button_y = button_y + button_height - 5  # start按钮下方，间距减少到-5像素
+        self.exit_button = HorrorButton(
+            button_x, exit_button_y, button_width, button_height,
+            "EXIT", self.button_font, self.exit_button_image, is_exit_button=True
+        )
+        
         # 动画效果
         self.title_pulse = 0.0
         self.blood_drip_offset = 0.0
@@ -150,6 +174,11 @@ class StartScreen:
         """更新动画效果"""
         # 标题脉动效果
         self.title_pulse += dt * 2.0
+        
+        # 检测鼠标悬停在哪个按钮上
+        mouse_pos = pygame.mouse.get_pos()
+        self.start_button.is_hovered = self.start_button.rect.collidepoint(mouse_pos)
+        self.exit_button.is_hovered = self.exit_button.rect.collidepoint(mouse_pos)
         
         # 血滴效果
         self.blood_drip_offset += dt * 50
@@ -172,6 +201,7 @@ class StartScreen:
         
         # 更新按钮
         self.start_button.update(dt)
+        self.exit_button.update(dt)
     
     def draw(self, screen):
         """绘制开始界面"""
@@ -183,6 +213,9 @@ class StartScreen:
         
         # 绘制开始按钮
         self.start_button.draw(screen)
+        
+        # 绘制退出按钮
+        self.exit_button.draw(screen)
         
         # 底部提示文字
         hint_font = pygame.font.Font(None, 24)
@@ -279,7 +312,7 @@ class StartScreen:
 class HorrorButton:
     """恐怖风格按钮"""
     
-    def __init__(self, x, y, width, height, text, font, image=None):
+    def __init__(self, x, y, width, height, text, font, image=None, is_exit_button=False):
         """
         初始化按钮
         
@@ -289,11 +322,13 @@ class HorrorButton:
             text: 按钮文字
             font: 字体对象
             image: 按钮图片（可选）
+            is_exit_button: 是否为EXIT按钮
         """
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
         self.font = font
         self.image = image
+        self.is_exit_button = is_exit_button
         self.is_hovered = False
         self.hover_intensity = 0.0
         self.shake_offset_x = 0
@@ -310,11 +345,16 @@ class HorrorButton:
         if self.image:
             # 缩放图片到更小的尺寸
             img_w, img_h = self.image.get_size()
-            # 保持宽高比，缩放到按钮宽度的50%（从80%改为50%）
-            base_scale = 0.5
-            # 悬停时稍微放大
-            if self.is_hovered:
-                base_scale = 0.55
+            # EXIT按钮使用更小的缩放比例
+            if self.is_exit_button:
+                base_scale = 0.35
+                if self.is_hovered:
+                    base_scale = 0.38
+            else:
+                # START按钮保持较大尺寸
+                base_scale = 0.48
+                if self.is_hovered:
+                    base_scale = 0.53
             
             target_w = int(self.rect.width * base_scale)
             scale = target_w / img_w
@@ -415,6 +455,33 @@ class EyeMenu:
         except Exception as e:
             print(f"加载MENU图片失败: {e}")
         
+        # 加载MENU_SELECT图片素材（叠加在白色方块上）
+        self.menu_select_image = None
+        menu_select_paths = [
+            'menu_select.png',
+            'menu_select.jpg',
+            os.path.join('menu_art', 'menu_select.png'),
+            os.path.join('menu_art', 'menu_select.jpg'),
+            os.path.join(os.path.dirname(__file__), 'menu_art', 'menu_select.png'),
+            os.path.join(os.path.dirname(__file__), 'menu_art', 'menu_select.jpg'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'menu_art', 'menu_select.png'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'menu_art', 'menu_select.jpg'),
+        ]
+        for path in menu_select_paths:
+            try:
+                loaded_img = pygame.image.load(path)
+                # 转换为带alpha通道的格式
+                self.menu_select_image = pygame.Surface((self.tab_width, self.tab_height), pygame.SRCALPHA)
+                # 缩放并绘制到新surface上
+                scaled = pygame.transform.scale(loaded_img, (self.tab_width, self.tab_height))
+                self.menu_select_image.blit(scaled, (0, 0))
+                print(f"✅ 成功加载MENU_SELECT图片: {path}")
+                break
+            except Exception as e:
+                continue
+        if self.menu_select_image is None:
+            print("❌ 未找到menu_select图片素材")
+        
         # 加载PAUSED图片素材
         self.paused_image = None
         try:
@@ -478,9 +545,9 @@ class EyeMenu:
         # 加载QUIT图片素材
         self.quit_image = None
         try:
-            quit_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'quit.png')
+            quit_img_path = os.path.join(os.path.dirname(__file__), 'menu_art', 'exit.png')
             if not os.path.exists(quit_img_path):
-                quit_img_path = os.path.join('menu_art', 'quit.png')
+                quit_img_path = os.path.join('menu_art', 'exit.png')
             if os.path.exists(quit_img_path):
                 self.quit_image = pygame.image.load(quit_img_path).convert_alpha()
                 # 缩放图片以适应按钮宽度
@@ -488,7 +555,7 @@ class EyeMenu:
                 img_height = int(self.quit_image.get_height() * (img_width / self.quit_image.get_width()))
                 self.quit_image = pygame.transform.scale(self.quit_image, (img_width, img_height))
         except Exception as e:
-            print(f"加载QUIT图片失败: {e}")
+            print(f"加载EXIT图片失败: {e}")
         
         # 加载菜单背景素材
         self.menu_background = None
@@ -618,7 +685,11 @@ class EyeMenu:
         # 绘制边框
         pygame.draw.rect(tab_surface, (200, 200, 200), tab_surface.get_rect(), 3)
         
-        # 绘制MENU图片或文字
+        # 先绘制MENU_SELECT图片（作为背景层）
+        if self.menu_select_image:
+            tab_surface.blit(self.menu_select_image, (0, 0))
+        
+        # 再绘制MENU图片或文字（叠加在上面）
         if self.menu_image:
             # 使用图片
             img_rect = self.menu_image.get_rect(center=(self.tab_width // 2, self.tab_height // 2))
@@ -1437,11 +1508,13 @@ class MenuManager:
         处理事件
         
         Returns:
-            str: 'start_game', 'resume', 'restart', 'quit' 或 None
+            str: 'start_game', 'exit', 'resume', 'restart', 'quit' 或 None
         """
         if self.current_state == 'start':
             if self.start_screen.start_button.handle_event(event):
                 return 'start_game'
+            if self.start_screen.exit_button.handle_event(event):
+                return 'exit'
         elif self.current_state == 'pause':
             result = self.eye_menu.handle_event(event)
             if result:

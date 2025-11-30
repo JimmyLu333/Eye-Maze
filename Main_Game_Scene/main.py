@@ -466,6 +466,11 @@ def main():
 						pass
 					print("🎮 游戏开始！")
 					continue
+				elif action == 'exit':
+					# 退出游戏
+					print("👋 退出游戏")
+					running = False
+					continue
 				elif action == 'resume':
 					game_state = 'playing'
 					# 关闭菜单
