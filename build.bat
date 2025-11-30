@@ -38,14 +38,6 @@ REM Adjust --add-data paths as needed. Windows uses semicolon to separate src;de
 	--add-data "Main_Game_Scene\textures;Main_Game_Scene\textures" ^
 	--add-data "Main_Game_Scene\menu_art;Main_Game_Scene\menu_art" ^
 	--add-data "Music_And_SFX;Music_And_SFX" ^
-	--add-data "resources\texture_manifest.json;resources" ^
-	--add-data "Main_Game_Scene\textures\Andreion de Castro - Freelance Designer and Creative Coder in London, United Kingdom.gif;Main_Game_Scene\textures" ^
-	--add-data "Main_Game_Scene\textures\eyes_pattern 2.png;Main_Game_Scene\textures" ^
-	--add-data "Main_Game_Scene\textures\floor_pattern.png;Main_Game_Scene\textures" ^
-	--add-data "Main_Game_Scene\textures\Trust your sight. But beware its lies..png;Main_Game_Scene\textures" ^
-	--add-data "Music_And_SFX\background_music.mp3;Music_And_SFX" ^
-	--add-data "Music_And_SFX\footsteps.wav;Music_And_SFX" ^
-	--add-data "Music_And_SFX\heart_beat.mp3;Music_And_SFX" ^
 	Main_Game_Scene\main.py
 
 echo.
