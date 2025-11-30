@@ -204,11 +204,27 @@ def main():
 		pass
 	clock = pygame.time.Clock()
 	
-	# 初始化菜单管理器
+	# 初始化声音管理器（在菜单之前初始化）
+	sound_manager = None
+	if SoundManager:
+		try:
+			sound_manager = SoundManager(
+				music_file='background_music.mp3',
+				music_volume=0.1
+			)
+			print("✅ 声音系统初始化成功")
+			
+			# 播放背景音乐（无限循环，2秒淡入）
+			sound_manager.play_music(loops=-1, fade_ms=2000)
+			
+		except Exception as e:
+			print(f"⚠️ 声音系统初始化失败: {e}")
+	
+	# 初始化菜单管理器（传入sound_manager）
 	menu_manager = None
 	if MenuManager:
 		try:
-			menu_manager = MenuManager(screen_w, screen_h)
+			menu_manager = MenuManager(screen_w, screen_h, sound_manager=sound_manager)
 			print("✅ 菜单系统初始化成功")
 		except Exception as e:
 			print(f"⚠️ 菜单系统初始化失败: {e}")
@@ -285,22 +301,6 @@ def main():
 	else:
 		eye_mech = EyeCapture(ear_threshold=args.ear_threshold, closed_frames=args.closed_frames, cooldown=args.cooldown, blackout_time=args.blackout_time)
 		print('Using EyeCapture for blink detection')
-
-	# 初始化声音管理器
-	sound_manager = None
-	if SoundManager:
-		try:
-			sound_manager = SoundManager(
-				music_file='background_music.mp3',
-				music_volume=0.1
-			)
-			print("✅ 声音系统初始化成功")
-			
-			# 播放背景音乐（无限循环，2秒淡入）
-			sound_manager.play_music(loops=-1, fade_ms=2000)
-			
-		except Exception as e:
-			print(f"⚠️ 声音系统初始化失败: {e}")
 
 	# player (initial position)
 	px, py = 1.5, 1.5
@@ -468,10 +468,9 @@ def main():
 					continue
 				elif action == 'resume':
 					game_state = 'playing'
-					# 不隐藏菜单管理器，只是改变状态
+					# 关闭菜单
 					if menu_manager:
-						menu_manager.current_state = 'pause'  # 保持pause状态以显示红色方块
-					# 不立即恢复鼠标捕获，让菜单先收起
+						menu_manager.eye_menu.close()
 					# 鼠标保持可见，以便点击方块
 					try:
 						pygame.mouse.set_visible(True)

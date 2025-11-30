@@ -357,10 +357,17 @@ class HorrorButton:
 class EyeMenu:
     """眼睛主题的暂停菜单 - 眨眼展开 + 多眼监视"""
     
-    def __init__(self, screen_width=800, screen_height=600):
-        """初始化眼睛菜单"""
+    def __init__(self, screen_width=800, screen_height=600, sound_manager=None):
+        """初始化眼睛菜单
+        
+        Args:
+            screen_width: 屏幕宽度
+            screen_height: 屏幕高度
+            sound_manager: SoundManager实例，用于控制音乐
+        """
         self.screen_width = screen_width
         self.screen_height = screen_height
+        self.sound_manager = sound_manager  # 保存音乐管理器引用
         
         # 菜单状态
         self.is_open = False
@@ -667,8 +674,8 @@ class EyeMenu:
         if self.menu_background and progress > 0.3:
             # 缩放背景图片以匹配当前菜单尺寸
             scaled_bg = pygame.transform.scale(self.menu_background, (current_width, current_height))
-            # 设置透明度（降低到150，让背景更透明）
-            bg_alpha = int(150 * min(1.0, (progress - 0.3) / 0.7))
+            # 设置透明度（恢复到255，完全不透明）
+            bg_alpha = int(255 * min(1.0, (progress - 0.3) / 0.7))
             scaled_bg.set_alpha(bg_alpha)
             menu_surface.blit(scaled_bg, (0, 0))
         else:
@@ -792,8 +799,8 @@ class EyeMenu:
             # 按钮背景（灰色透明底，白色边框）
             btn_surf = pygame.Surface((scaled_w, scaled_h), pygame.SRCALPHA)
             btn_rect = btn_surf.get_rect()
-            # 灰色半透明背景
-            pygame.draw.rect(btn_surf, (128, 128, 128, alpha), btn_rect)
+            # 灰色半透明背景（颜色变浅：从128改为180）
+            pygame.draw.rect(btn_surf, (180, 180, 180, alpha), btn_rect)
             # 白色边框（更细）
             pygame.draw.rect(btn_surf, (255, 255, 255, int(alpha * 0.6)), btn_rect, 1)
             
@@ -881,6 +888,15 @@ class EyeMenu:
                         btn_rect = pygame.Rect(btn_x, btn_y, button_w, button_h)
                         
                         if btn_rect.collidepoint(mx, my):
+                            # 如果点击了restart，重启背景音乐
+                            if action == "restart" and self.sound_manager:
+                                try:
+                                    # 停止当前音乐
+                                    self.sound_manager.stop_music(fade_ms=0)
+                                    # 从头开始播放
+                                    self.sound_manager.play_music(loops=-1, fade_ms=500)
+                                except Exception as e:
+                                    print(f"重启音乐失败: {e}")
                             return action
                     
                     # 检查音量滑块
@@ -1381,13 +1397,14 @@ class PauseMenu:
 class MenuManager:
     """菜单管理器"""
     
-    def __init__(self, screen_width=800, screen_height=600):
+    def __init__(self, screen_width=800, screen_height=600, sound_manager=None):
         """
         初始化菜单管理器
         
         Args:
             screen_width: 屏幕宽度
             screen_height: 屏幕高度
+            sound_manager: SoundManager实例，用于控制音乐
         """
         self.screen_width = screen_width
         self.screen_height = screen_height
@@ -1395,8 +1412,8 @@ class MenuManager:
         # 创建开始界面
         self.start_screen = StartScreen(screen_width, screen_height)
         
-        # 创建眼睛主题暂停菜单
-        self.eye_menu = EyeMenu(screen_width, screen_height)
+        # 创建眼睛主题暂停菜单（传入sound_manager）
+        self.eye_menu = EyeMenu(screen_width, screen_height, sound_manager=sound_manager)
         
         # 当前状态
         self.current_state = 'start'  # 'start', 'pause', None(游戏中)
