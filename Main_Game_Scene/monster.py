@@ -18,9 +18,9 @@ class Monster:
         # 属性
         self.base_detection_range = 4.0
         self.current_detection_range = self.base_detection_range
-        self.patrol_speed = 0.8  # 调慢巡逻速度
-        self.chase_speed = 1.2   # 调慢跟随速度
-        self.attack_speed = 4.0  # 稍微调慢突袭速度
+        self.patrol_speed = 1.0  # 稍微提高巡逻速度
+        self.chase_speed = 1.8   # 玩家速度(1.5) * 1.2
+        self.attack_speed = 4.0  # 保持突袭速度
         
         # 巡逻相关
         self.patrol_target = None

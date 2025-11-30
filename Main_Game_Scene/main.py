@@ -393,12 +393,12 @@ def main():
 	max_depth = 20
 	wall_height = 120 * SCALE
 
-	# 初始化 Monster
-	monster = None
+	# 初始化 Monsters
+	monsters = []
 	# 第一关是教学关卡，不生成怪物
 	# if Monster:
 	# 	# 将怪物放置在出口位置，或者离玩家较远的位置
-	# 	monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+	# 	monsters.append(Monster((exit_x + 0.5, exit_y + 0.5), maze))
 	# 	print(f"✅ Monster initialized at ({exit_x + 0.5}, {exit_y + 0.5})")
 	# else:
 	# 	print("⚠️ Warning: Monster class not imported, monster disabled.")
@@ -689,19 +689,26 @@ def main():
 			state = {"blackout": False, "enemy": False, "ear": None}
 
 		# --- Monster Update ---
-		if monster:
+		if monsters:
 			# 玩家闭眼时 state.get('blackout') 为 True
 			# Monster 需要知道眼睛是否睁开
 			is_eye_open = not state.get('blackout', False)
 			
-			monster.update((px, py), pa, is_eye_open, dt)
+			any_chasing = False
+			any_scare = False
+
+			for monster in monsters:
+				monster.update((px, py), pa, is_eye_open, dt)
+				if monster.state == 'chase':
+					any_chasing = True
+				if monster.trigger_scare:
+					any_scare = True
 			
 			# 更新心跳声
 			if sound_manager:
-				is_chasing = monster.state == 'chase'
-				sound_manager.update_heartbeat(is_chasing)
+				sound_manager.update_heartbeat(any_chasing)
 			
-			if monster.trigger_scare:
+			if any_scare:
 				# 触发恐怖画面
 				# 先渲染最后一帧（包含怪物贴脸）
 				# 这里我们简单地填充红色，实际应该是在渲染循环里处理
@@ -1053,99 +1060,74 @@ def main():
 				col = (color_val, color_val, color_val)
 				pygame.draw.rect(screen, col, (x, screen_h // 2 - proj_height // 2, slice_w, proj_height))
 
-		# --- Sprite Rendering (Monster) ---
-		if monster:
-			# 1. Calculate sprite position relative to camera
-			sprite_x = monster.x - px
-			sprite_y = monster.y - py
+		# --- Sprite Rendering (Monsters) ---
+		if monsters:
+			# Sort monsters by distance to player (far to near)
+			monsters_sorted = sorted(monsters, key=lambda m: (m.x - px)**2 + (m.y - py)**2, reverse=True)
 
-			# 2. Transform sprite with the inverse camera matrix
-			# [ planeX   dirX ] -1                                       [ dirY      -dirX ]
-			# [               ]       =  1/(planeX*dirY-dirX*planeY) *   [                 ]
-			# [ planeY   dirY ]                                          [ -planeY  planeX ]
+			for monster in monsters_sorted:
+				# 1. Calculate sprite position relative to camera
+				sprite_x = monster.x - px
+				sprite_y = monster.y - py
 
-			# We need camera plane and direction vectors.
-			# dirX = cos(pa), dirY = sin(pa)
-			# planeX = -sin(pa) * tan(half_fov), planeY = cos(pa) * tan(half_fov) (approx)
-			
-			# Let's use a simpler approach since we have pa (player angle)
-			# Rotate sprite position by -pa
-			inv_det = 1.0 # We can just rotate
-			
-			# Rotate the sprite position so that the camera direction is the X axis
-			# New X is forward distance, New Y is lateral distance
-			# rot_x = sprite_x * cos(-pa) - sprite_y * sin(-pa)
-			# rot_y = sprite_x * sin(-pa) + sprite_y * cos(-pa)
-			
-			# Actually, standard raycasting sprite math:
-			# transformX = invDet * (dirY * spriteX - dirX * spriteY)
-			# transformY = invDet * (-planeY * spriteX + planeX * spriteY)
-			
-			# Let's stick to the rotation method which is intuitive
-			# Forward distance (depth)
-			transform_z = sprite_x * math.cos(pa) + sprite_y * math.sin(pa)
-			# Lateral distance (left/right)
-			transform_x = -sprite_x * math.sin(pa) + sprite_y * math.cos(pa)
+				# 2. Transform sprite with the inverse camera matrix
+				# Forward distance (depth)
+				transform_z = sprite_x * math.cos(pa) + sprite_y * math.sin(pa)
+				# Lateral distance (left/right)
+				transform_x = -sprite_x * math.sin(pa) + sprite_y * math.cos(pa)
 
-			if transform_z > 0.1: # Only draw if in front of camera
-				# Project to screen X
-				# screen_x = (0.5 * screen_w) * (1 + transform_x / (transform_z * tan(half_fov)))
-				# Simplified:
-				sprite_screen_x = int((screen_w / 2) * (1 + transform_x / (transform_z * math.tan(half_fov))))
-				
-				# Calculate height of the sprite on screen
-				sprite_height = abs(int(screen_h / (transform_z))) # Basic scaling
-				# Calculate width of the sprite
-				sprite_width = abs(int(screen_h / (transform_z))) # Square sprite
-
-				sprite_top_y = int((screen_h - sprite_height) / 2)
-				
-				# Draw the sprite (Placeholder: Red Rectangle with Eyes)
-				# In a real scenario, we would iterate columns and check Z-buffer
-				
-				# Create a temporary surface for the monster if not loaded
-				if not hasattr(monster, 'texture'):
-					monster.texture = pygame.Surface((64, 64))
-					monster.texture.fill((255, 0, 0)) # Red body
-					pygame.draw.circle(monster.texture, (255, 255, 0), (20, 20), 8) # Left Eye
-					pygame.draw.circle(monster.texture, (255, 255, 0), (44, 20), 8) # Right Eye
-					pygame.draw.rect(monster.texture, (0, 0, 0), (16, 40, 32, 10)) # Mouth
-
-				# Scale texture to sprite size
-				if sprite_width > 0 and sprite_height > 0:
-					scaled_tex = pygame.transform.scale(monster.texture, (sprite_width, sprite_height))
+				if transform_z > 0.1: # Only draw if in front of camera
+					# Project to screen X
+					sprite_screen_x = int((screen_w / 2) * (1 + transform_x / (transform_z * math.tan(half_fov))))
 					
-					# Render column by column to respect Z-Buffer
-					start_x = int(sprite_screen_x - sprite_width / 2)
-					end_x = int(sprite_screen_x + sprite_width / 2)
+					# Calculate height of the sprite on screen
+					sprite_height = abs(int(screen_h / (transform_z))) # Basic scaling
+					# Calculate width of the sprite
+					sprite_width = abs(int(screen_h / (transform_z))) # Square sprite
+
+					sprite_top_y = int((screen_h - sprite_height) / 2)
 					
-					# Clip to screen boundaries
-					tex_start_x = 0
-					if start_x < 0:
-						tex_start_x = -start_x
-						start_x = 0
-					if end_x >= screen_w:
-						end_x = screen_w - 1
+					# Draw the sprite (Placeholder: Red Rectangle with Eyes)
+					# In a real scenario, we would iterate columns and check Z-buffer
+					
+					# Create a temporary surface for the monster if not loaded
+					if not hasattr(monster, 'texture'):
+						monster.texture = pygame.Surface((64, 64))
+						monster.texture.fill((255, 0, 0)) # Red body
+						pygame.draw.circle(monster.texture, (255, 255, 0), (20, 20), 8) # Left Eye
+						pygame.draw.circle(monster.texture, (255, 255, 0), (44, 20), 8) # Right Eye
+						pygame.draw.rect(monster.texture, (0, 0, 0), (16, 40, 32, 10)) # Mouth
+
+					# Scale texture to sprite size
+					if sprite_width > 0 and sprite_height > 0:
+						scaled_tex = pygame.transform.scale(monster.texture, (sprite_width, sprite_height))
 						
-					for stripe in range(start_x, end_x):
-						# Check Z-Buffer
-						if transform_z < z_buffer[stripe]:
-							# Draw this column of the sprite
-							tex_x = int((stripe - (sprite_screen_x - sprite_width / 2)) * 64 / sprite_width)
-							# Simple blit of the column
-							# To optimize, we could blit the whole thing if we knew it wasn't occluded, 
-							# but column-based is correct for intersection.
-							# For Python/Pygame, blitting columns is slow. 
-							# Optimization: Check if the center is visible or just blit the whole thing if close?
-							# Let's stick to column blit for correctness.
-							try:
-								# Get column from scaled texture
-								# Actually, scaling the whole texture every frame is slow.
-								# Better: Scale once per frame (done above), then subsurface.
-								col_surf = scaled_tex.subsurface((stripe - start_x + tex_start_x, 0, 1, sprite_height))
-								screen.blit(col_surf, (stripe, sprite_top_y))
-							except Exception:
-								pass
+						# Render column by column to respect Z-Buffer
+						start_x = int(sprite_screen_x - sprite_width / 2)
+						end_x = int(sprite_screen_x + sprite_width / 2)
+						
+						# Clip to screen boundaries
+						tex_start_x = 0
+						if start_x < 0:
+							tex_start_x = -start_x
+							start_x = 0
+						if end_x >= screen_w:
+							end_x = screen_w - 1
+							
+						for stripe in range(start_x, end_x):
+							# Check Z-Buffer
+							if transform_z < z_buffer[stripe]:
+								# Draw this column of the sprite
+								# tex_x = int((stripe - (sprite_screen_x - sprite_width / 2)) * 64 / sprite_width)
+								# Simple blit of the column
+								try:
+									# Get column from scaled texture
+									# Actually, scaling the whole texture every frame is slow.
+									# Better: Scale once per frame (done above), then subsurface.
+									col_surf = scaled_tex.subsurface((stripe - start_x + tex_start_x, 0, 1, sprite_height))
+									screen.blit(col_surf, (stripe, sprite_top_y))
+								except Exception:
+									pass
 		# -------------------------------------
 
 		# Render a simple upright door (no texture) at the exit if it's closed and within view.
@@ -1204,13 +1186,14 @@ def main():
 		# reveal walls only locally around visited cells (radius=1)
 		mm_rect = draw_minimap(screen, maze, px, py, exit_x, exit_y, SCALE, visited=visited_cells, show_walls=True, wall_reveal_radius=1)
 
-		# Draw Monster on Minimap
-		# if monster and mm_rect:
+		# Draw Monsters on Minimap
+		# if monsters and mm_rect:
 		# 	mm_scale = 8 * SCALE
-		# 	mx_px = mm_rect.left + int(monster.x * mm_scale)
-		# 	my_px = mm_rect.top + int(monster.y * mm_scale)
-		# 	# Draw monster as a purple dot
-		# 	pygame.draw.circle(screen, (128, 0, 128), (mx_px, my_px), int(3 * SCALE))
+		# 	for monster in monsters:
+		# 		mx_px = mm_rect.left + int(monster.x * mm_scale)
+		# 		my_px = mm_rect.top + int(monster.y * mm_scale)
+		# 		# Draw monster as a purple dot
+		# 		pygame.draw.circle(screen, (128, 0, 128), (mx_px, my_px), int(3 * SCALE))
 		# copy the minimap area so we can re-draw it after any global overlays (keeps it unaffected)
 		mm_surf = None
 		try:
@@ -1298,7 +1281,7 @@ def main():
 									pass
 
 								# Find monster spawn near center
-								mx, my = exit_x, exit_y
+								mx_center, my_center = exit_x, exit_y
 								min_dist_to_center = float('inf')
 								cx, cy = map_w // 2, map_h // 2
 								
@@ -1312,12 +1295,36 @@ def main():
 											
 											if d_center < min_dist_to_center and d_player > 25:
 												min_dist_to_center = d_center
-												mx, my = x, y
+												mx_center, my_center = x, y
 
-								# Re-initialize Monster
+								# Find monster spawn near exit
+								mx_exit, my_exit = exit_x, exit_y
+								min_dist_to_exit = float('inf')
+								
+								for y in range(map_h):
+									for x in range(map_w):
+										if maze[y][x] == 0:
+											# Distance to exit
+											d_exit = (x - exit_x) ** 2 + (y - exit_y) ** 2
+											# Distance to player start (1,1)
+											d_player = (x - 1) ** 2 + (y - 1) ** 2
+											
+											# Ensure it's not too close to the center monster (optional but good)
+											d_other = (x - mx_center) ** 2 + (y - my_center) ** 2
+
+											if d_exit < min_dist_to_exit and d_player > 25 and d_other > 9:
+												min_dist_to_exit = d_exit
+												mx_exit, my_exit = x, y
+
+								# Re-initialize Monsters
+								monsters = []
 								if Monster:
-									monster = Monster((mx + 0.5, my + 0.5), maze)
-									print(f"DEBUG: Monster spawned at ({mx}, {my})")
+									# Monster 1: Center
+									monsters.append(Monster((mx_center + 0.5, my_center + 0.5), maze))
+									# Monster 2: Exit
+									monsters.append(Monster((mx_exit + 0.5, my_exit + 0.5), maze))
+									
+									print(f"DEBUG: Monsters spawned at ({mx_center}, {my_center}) and ({mx_exit}, {my_exit})")
 							except Exception:
 								# fallback: reuse existing maze if generation fails
 								maze = maze
