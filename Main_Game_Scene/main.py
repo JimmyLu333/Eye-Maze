@@ -1302,6 +1302,7 @@ def main():
 								# Re-initialize Monster
 								if Monster:
 									monster = Monster((exit_x + 0.5, exit_y + 0.5), maze)
+									print("✅ Level 2 Monster initialized with optimized pathfinding")
 							except Exception:
 								# fallback: reuse existing maze if generation fails
 								maze = maze

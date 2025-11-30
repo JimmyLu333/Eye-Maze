@@ -59,7 +59,8 @@ class Monster:
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = curr_x + dx, curr_y + dy
                 
-                if 0 <= ny < rows and 0 <= nx < cols and self.maze[ny][nx] == 0 and (nx, ny) not in visited:
+                # 只要不是墙壁 (1)，就可以通行 (包括门 2)
+                if 0 <= ny < rows and 0 <= nx < cols and self.maze[ny][nx] != 1 and (nx, ny) not in visited:
                     visited.add((nx, ny))
                     queue.append(((nx, ny), path + [(curr_x + 0.5, curr_y + 0.5)]))
                     
@@ -133,7 +134,8 @@ class Monster:
                 for _ in range(10): # 尝试10次
                     ty = random.randint(0, len(self.maze) - 1)
                     tx = random.randint(0, len(self.maze[0]) - 1)
-                    if self.maze[ty][tx] == 0:
+                    # 目标点只要不是墙壁即可
+                    if self.maze[ty][tx] != 1:
                         self.patrol_target = (tx + 0.5, ty + 0.5)
                         # 计算路径
                         self.path = self.find_path((self.x, self.y), self.patrol_target)
@@ -221,13 +223,15 @@ class Monster:
             
             # 检查碰撞 (假设墙壁是 1)
             # 简单的圆形/点碰撞检测
+            # 注意：maze[y][x] == 2 是门，怪物应该可以穿过门或者至少不被卡住
+            # 所以我们只检查是否是墙壁 (1)
             if 0 <= int(ny) < len(self.maze) and 0 <= int(nx) < len(self.maze[0]):
-                if self.maze[int(ny)][int(nx)] == 0:
+                if self.maze[int(ny)][int(nx)] != 1:
                     self.x = nx
                     self.y = ny
                 else:
                     # 简单的滑动处理 (分别尝试 X 和 Y 轴移动)
-                    if self.maze[int(self.y)][int(nx)] == 0:
+                    if self.maze[int(self.y)][int(nx)] != 1:
                         self.x = nx
-                    elif self.maze[int(ny)][int(self.x)] == 0:
+                    elif self.maze[int(ny)][int(self.x)] != 1:
                         self.y = ny
