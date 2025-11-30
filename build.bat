@@ -13,23 +13,43 @@ if exist dist rmdir /s /q dist
 if exist __pycache__ rmdir /s /q __pycache__
 
 echo Building EyeMaze (onedir) with PyInstaller...
-REM Prefer the project's venv Python if present, otherwise fall back to system `python`.
+REM Prefer a dedicated build venv (.venv_build) if present, else fall back to project .venv, then system `python`.
 set "PYRUN=python"
-if exist ".venv\Scripts\python.exe" (
-	:: Try to use venv python if PyInstaller is already available
-	2>nul ".venv\Scripts\python.exe" -c "import importlib; importlib.import_module('PyInstaller')"
+if exist ".venv_build\Scripts\python.exe" (
+	echo Found .venv_build - trying that first...
+	2>nul ".venv_build\Scripts\python.exe" -c "import importlib; importlib.import_module('PyInstaller')"
 	if %errorlevel%==0 (
-		set "PYRUN=.venv\Scripts\python.exe"
+		set "PYRUN=.venv_build\Scripts\python.exe"
 	) else (
-		echo PyInstaller not found in .venv. Attempting to install into the venv now...
-		2>nul ".venv\Scripts\python.exe" -m ensurepip --upgrade
-		2>nul ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
-		2>nul ".venv\Scripts\python.exe" -m pip install pyinstaller
+		echo PyInstaller not found in .venv_build. Attempting to install into .venv_build now...
+		2>nul ".venv_build\Scripts\python.exe" -m ensurepip --upgrade
+		2>nul ".venv_build\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
+		2>nul ".venv_build\Scripts\python.exe" -m pip install pyinstaller
+		2>nul ".venv_build\Scripts\python.exe" -c "import importlib; importlib.import_module('PyInstaller')"
+		if %errorlevel%==0 (
+			set "PYRUN=.venv_build\Scripts\python.exe"
+		) else (
+			echo Failed to install PyInstaller into .venv_build; falling back to other options.
+		)
+	)
+)
+if "%PYRUN%"=="python" (
+	if exist ".venv\Scripts\python.exe" (
+		:: Try to use project venv python if PyInstaller is already available
 		2>nul ".venv\Scripts\python.exe" -c "import importlib; importlib.import_module('PyInstaller')"
 		if %errorlevel%==0 (
 			set "PYRUN=.venv\Scripts\python.exe"
 		) else (
-			echo Failed to install PyInstaller into .venv; will use system python instead.
+			echo PyInstaller not found in .venv. Attempting to install into the venv now...
+			2>nul ".venv\Scripts\python.exe" -m ensurepip --upgrade
+			2>nul ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
+			2>nul ".venv\Scripts\python.exe" -m pip install pyinstaller
+			2>nul ".venv\Scripts\python.exe" -c "import importlib; importlib.import_module('PyInstaller')"
+			if %errorlevel%==0 (
+				set "PYRUN=.venv\Scripts\python.exe"
+			) else (
+				echo Failed to install PyInstaller into .venv; will use system python instead.
+			)
 		)
 	)
 )
