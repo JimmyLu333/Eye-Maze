@@ -461,7 +461,9 @@ def main():
 					menu_manager.current_state = 'pause'
 					# 保持鼠标可见，方便点击方块
 					try:
-						pygame.mouse.set_visible(True)
+						# 当真正进入游戏时，根据 MOUSE_LOOK 决定是否抓取并隐藏鼠标
+						pygame.event.set_grab(MOUSE_LOOK)
+						pygame.mouse.set_visible(not MOUSE_LOOK)
 					except Exception:
 						pass
 					print("🎮 游戏开始！")
