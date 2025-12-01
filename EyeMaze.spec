@@ -1,16 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+tmp_ret = collect_all('mediapipe')
+datas = [('Main_Game_Scene\\textures', 'Main_Game_Scene\\textures'), ('Main_Game_Scene\\menu_art', 'Main_Game_Scene\\menu_art'), ('Music_And_SFX', 'Music_And_SFX')]
+datas += tmp_ret[0]
+binaries = []
+binaries += tmp_ret[1]
+hiddenimports = []
+hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['Main_Game_Scene\\main.py'],
     pathex=[],
-    binaries=[],
-    datas=[('Main_Game_Scene\\textures', 'Main_Game_Scene\\textures'), ('Main_Game_Scene\\menu_art', 'Main_Game_Scene\\menu_art'), ('Music_And_SFX', 'Music_And_SFX')],
-    hiddenimports=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['matplotlib', 'scipy'],
     noarchive=False,
     optimize=0,
 )

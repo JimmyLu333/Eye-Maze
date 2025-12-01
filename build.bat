@@ -54,11 +54,7 @@ if "%PYRUN%"=="python" (
 	)
 )
 REM Adjust --add-data paths as needed. Windows uses semicolon to separate src;dest
-%PYRUN% -m PyInstaller --noconfirm --clean --onedir --name "EyeMaze" --windowed ^
-	--add-data "Main_Game_Scene\textures;Main_Game_Scene\textures" ^
-	--add-data "Main_Game_Scene\menu_art;Main_Game_Scene\menu_art" ^
-	--add-data "Music_And_SFX;Music_And_SFX" ^
-	Main_Game_Scene\main.py
+%PYRUN% -m PyInstaller --noconfirm --clean EyeMaze.spec
 
 echo.
 echo Build finished. See dist\EyeMaze\ for the output.
