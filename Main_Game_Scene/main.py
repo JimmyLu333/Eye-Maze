@@ -1165,8 +1165,6 @@ def main():
 					try:
 						if (ray_mx, ray_my) != (exit_x, exit_y):
 							wall_blocks = True
-						elif ray_depth is not None and ray_depth < dist_primary - 0.25:
-							wall_blocks = True
 					except Exception:
 						pass
 

@@ -145,7 +145,7 @@ class StartScreen:
         
         self.start_button = HorrorButton(
             button_x, button_y, button_width, button_height,
-            "START", self.button_font, self.start_button_image
+            "开始", self.button_font, self.start_button_image
         )
         
         # 加载exit按钮图片
