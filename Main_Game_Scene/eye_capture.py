@@ -1,6 +1,7 @@
 import time
 import cv2
 import mediapipe as mp
+from collections import deque
 
 class EyeCapture:
     def __init__(self, ear_threshold=0.20, closed_frames=6, cooldown=10.0, blackout_time=2.0):
@@ -13,6 +14,11 @@ class EyeCapture:
         self.last_enemy_time = 0.0
         self.blackout_until = 0.0
         self.enemy_near = False
+        
+        # 增强功能：平滑处理和自适应阈值
+        self.ear_history = deque(maxlen=5)  # 保存最近5帧的EAR值用于平滑
+        self.running_open_ear = 0.30        # 初始假设的睁眼EAR值
+        self.use_adaptive = True            # 启用自适应阈值
 
         mp_face = mp.solutions.face_mesh
         self.face_mesh = mp_face.FaceMesh(
@@ -42,12 +48,37 @@ class EyeCapture:
         ear_val = None
         if results.multi_face_landmarks:
             lm = results.multi_face_landmarks[0].landmark
-            ear_val = self.compute_ear(lm)
-            if ear_val is not None and ear_val < self.ear_threshold:
-                self.closed_eye_count += 1
+            raw_ear = self.compute_ear(lm)
+            
+            if raw_ear is not None:
+                # 1. 平滑处理：取最近几帧的平均值，减少抖动
+                self.ear_history.append(raw_ear)
+                ear_val = sum(self.ear_history) / len(self.ear_history)
+
+                # 2. 自适应阈值逻辑
+                if self.use_adaptive:
+                    # 只有当当前EAR值大于当前阈值时（即认为是睁眼状态），才更新基准值
+                    # 这样可以防止闭眼时基准值被错误拉低
+                    if ear_val > self.ear_threshold:
+                        # 学习率 0.01，缓慢逼近
+                        self.running_open_ear = (0.99 * self.running_open_ear) + (0.01 * ear_val)
+                    
+                    # 动态设置阈值：取睁眼基准值的 75% 作为闭眼阈值 (之前是60%，太难触发)
+                    # 限制阈值在 0.16 到 0.28 之间
+                    # 0.16 保证了即使基准值很低，也不会低到无法触发
+                    self.ear_threshold = max(0.16, min(self.running_open_ear * 0.75, 0.28))
+
+                # DEBUG: Print EAR info
+                print(f"[DEBUG] EAR: {ear_val:.3f} | Thresh: {self.ear_threshold:.3f} | Base: {self.running_open_ear:.3f} | Closed: {self.closed_eye_count}")
+
+                if ear_val < self.ear_threshold:
+                    self.closed_eye_count += 1
+                else:
+                    self.closed_eye_count = 0
             else:
                 self.closed_eye_count = 0
         else:
+            print("[DEBUG] No face detected.")
             self.closed_eye_count = 0
 
         # 事件触发

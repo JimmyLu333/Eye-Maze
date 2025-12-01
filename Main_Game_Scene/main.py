@@ -37,10 +37,11 @@ except ImportError:
 
 try:
 	from Main_Game_Scene.eye_capture import EyeCapture
-except Exception:
+except Exception as e1:
 	try:
 		from eye_capture import EyeCapture
-	except Exception:
+	except Exception as e2:
+		print(f"⚠️ Error importing EyeCapture: {e1} | {e2}")
 		EyeCapture = None
 
 # 导入 Monster 类
