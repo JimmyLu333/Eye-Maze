@@ -1,27 +1,25 @@
-# Eye-Maze — simple 3D raycast maze
+# Eye-Maze — 3D raycast maze
 
-This is a small demo that generates a random maze and renders a simple 3D view using a raycasting technique and Pygame.
+This is a  a random maze and renders a simple 3D view using a raycasting technique and Pygame.
 
-Requirements
-- Python 3.8+
-- pygame (see `requirements.txt`)
+Do Not Trust Your Eyes!!!!!!!!!
 
-Run
-1. (Optional) Create a virtual environment.
-2. Install dependencies:
-```
-pip install -r requirements.txt
-```
-3. Run:
-```
-python main.py
-```
+# Install
+1. Download the main branch zip
+2. Open the file name dist
+3. Double click on EyeMaze.exe
+4. Enjoy!
 
-Controls
+# Controls
 - W/S: move forward/back
-- A/D: turn left/right
+- Mouse control：The view turn left/right
+- Holding alt: Mouse being visible in game
 - Esc or window close: quit
 
-Notes
-- This is intentionally small and self-contained. You can adjust maze size or rendering parameters in `main.py`.
+# Main Game Play
+This is a maze that you can never escape, the only way you can do, is keep running, and running, and running.
+
+There are Monsters in the game and will be chasing you. Maybe you need your eyes?
+
+
 # Eye-Maze
